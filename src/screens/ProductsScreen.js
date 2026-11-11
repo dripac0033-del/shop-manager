@@ -23,6 +23,7 @@ export default function ProductsScreen() {
     addProduct,
     updateProduct,
     deleteProduct,
+    adjustProductStock,
     isRTL,
     firebaseConnected,
     uploadStockToCloud,
@@ -33,8 +34,13 @@ export default function ProductsScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [stockFilter, setStockFilter] = useState('all'); // 'all' | 'normal' | 'low' | 'out'
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+
+  // Quick Barcode Scan Modal for Product screen
+  const [scannerModalVisible, setScannerModalVisible] = useState(false);
+  const [scannedCodeInput, setScannedCodeInput] = useState('');
 
   // Form State
   const [barcode, setBarcode] = useState('');
@@ -113,9 +119,10 @@ export default function ProductsScreen() {
 
   const handleDelete = (id) => {
     if (Platform.OS === 'web') {
-      const confirmed = typeof window !== 'undefined' && window.confirm
-        ? window.confirm(isRTL ? 'هل تريد حقاً حذف هذا المنتج؟' : 'Voulez-vous vraiment supprimer ce produit ?')
-        : true;
+      const confirmed =
+        typeof window !== 'undefined' && window.confirm
+          ? window.confirm(isRTL ? 'هل تريد حقاً حذف هذا المنتج؟' : 'Voulez-vous vraiment supprimer ce produit ?')
+          : true;
       if (confirmed) {
         deleteProduct(id);
       }
@@ -131,6 +138,64 @@ export default function ProductsScreen() {
     );
   };
 
+  // Quick Stock Adjust (+5, +10, -1) with safe execution
+  const handleQuickStock = async (item, delta) => {
+    if (adjustProductStock) {
+      await adjustProductStock(item.id, delta);
+    } else {
+      const newStock = Math.max(0, Number(item.stock || 0) + delta);
+      await updateProduct(item.id, { ...item, stock: newStock });
+    }
+  };
+
+  // Export Product Catalog to CSV
+  const handleExportCSV = () => {
+    if (!validProducts.length) {
+      Alert.alert('CSV', isRTL ? 'لا توجد منتجات لتصديرها!' : 'Aucun produit à exporter !');
+      return;
+    }
+
+    const headers = [
+      'Code-barres',
+      'Nom (FR)',
+      'Nom (AR)',
+      'Categorie',
+      'Prix Achat',
+      'Prix Vente',
+      'Stock',
+      'Seuil Min',
+      'Valeur Achat DZD',
+    ];
+
+    const rows = validProducts.map((p) => [
+      `"${p.barcode || ''}"`,
+      `"${(p.nameFr || '').replace(/"/g, '""')}"`,
+      `"${(p.nameAr || '').replace(/"/g, '""')}"`,
+      `"${(p.category || '').replace(/"/g, '""')}"`,
+      p.buyPrice || 0,
+      p.sellPrice || 0,
+      p.stock || 0,
+      p.minStock || 5,
+      (Number(p.buyPrice || 0) * Number(p.stock || 0)).toFixed(2),
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `catalogue_stock_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      Alert.alert('CSV', isRTL ? 'تم إنشاء ملف CSV للكتالوج بنجاح!' : 'Export CSV du catalogue généré avec succès !');
+    }
+  };
+
+  // Filtered Products
   const filteredProducts = validProducts.filter((p) => {
     if (!p) return false;
     const barcodeStr = p.barcode ? String(p.barcode) : '';
@@ -142,13 +207,30 @@ export default function ProductsScreen() {
       barcodeStr.includes(q) ||
       nameFrStr.includes(q) ||
       nameArStr.includes(q);
+
     const matchesCat = selectedCategory === 'All' || p.category === selectedCategory;
-    return matchesSearch && matchesCat;
+
+    // Stock Filter Logic
+    let matchesStock = true;
+    if (stockFilter === 'normal') {
+      matchesStock = p.stock > p.minStock;
+    } else if (stockFilter === 'low') {
+      matchesStock = p.stock <= p.minStock && p.stock > 0;
+    } else if (stockFilter === 'out') {
+      matchesStock = p.stock <= 0;
+    }
+
+    return matchesSearch && matchesCat && matchesStock;
   });
+
+  // Calculate quick stock metrics
+  const totalStockCount = validProducts.reduce((sum, p) => sum + Number(p.stock || 0), 0);
+  const lowStockCount = validProducts.filter((p) => p.stock <= p.minStock && p.stock > 0).length;
+  const outOfStockCount = validProducts.filter((p) => p.stock <= 0).length;
 
   return (
     <View style={styles.container}>
-      {/* Header and Search */}
+      {/* Top Header and Search Controls */}
       <View style={[styles.topRow, isRTL && styles.rowReverse]}>
         <View style={[styles.searchBar, isRTL && styles.rowReverse]}>
           <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
@@ -159,15 +241,36 @@ export default function ProductsScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
 
+        {/* CSV Export Button */}
+        <TouchableOpacity
+          style={styles.csvExportBtn}
+          onPress={handleExportCSV}
+          title="Exporter CSV"
+        >
+          <Ionicons name="download-outline" size={18} color="#ffffff" />
+          <Text style={styles.csvBtnText}>CSV</Text>
+        </TouchableOpacity>
+
+        {/* Cloud Sync Button */}
         {firebaseConnected && (
           <TouchableOpacity
             style={[styles.cloudSyncBtn, syncStatus === 'sending' && { opacity: 0.6 }]}
             onPress={async () => {
               try {
                 const res = await uploadStockToCloud();
-                Alert.alert(t('firebaseSync'), isRTL ? `تمت مزامنة ${res.count} منتج مع فايربيس!` : `${res.count} produits synchronisés avec Firebase !`);
+                Alert.alert(
+                  t('firebaseSync'),
+                  isRTL
+                    ? `تمت مزامنة ${res.count} منتج مع فايربيس!`
+                    : `${res.count} produits synchronisés avec Firebase !`
+                );
               } catch (e) {
                 Alert.alert('Firebase', e.message);
               }
@@ -177,6 +280,7 @@ export default function ProductsScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Add Product Button */}
         <TouchableOpacity style={styles.addBtn} onPress={handleOpenAdd}>
           <Ionicons name="add" size={26} color="#ffffff" />
         </TouchableOpacity>
@@ -205,9 +309,66 @@ export default function ProductsScreen() {
               : (isRTL ? 'الوضع المحلي (بدون إنترنت)' : 'Mode Local Hors-ligne')}
           </Text>
         </View>
-        {lastSyncTime && (
-          <Text style={styles.syncTimeText}>{lastSyncTime}</Text>
-        )}
+        {lastSyncTime && <Text style={styles.syncTimeText}>{lastSyncTime}</Text>}
+      </View>
+
+      {/* Stock Health Quick Filter Tabs */}
+      <View style={[styles.stockFilterTabs, isRTL && styles.rowReverse]}>
+        <TouchableOpacity
+          style={[styles.stockFilterPill, stockFilter === 'all' && styles.stockFilterPillActive]}
+          onPress={() => setStockFilter('all')}
+        >
+          <Text style={[styles.stockFilterPillText, stockFilter === 'all' && styles.stockFilterPillTextActive]}>
+            {isRTL ? 'الكل' : 'Tous'} ({validProducts.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.stockFilterPill, stockFilter === 'normal' && styles.stockFilterPillActive]}
+          onPress={() => setStockFilter('normal')}
+        >
+          <Text style={[styles.stockFilterPillText, stockFilter === 'normal' && styles.stockFilterPillTextActive]}>
+            {isRTL ? 'متوفر' : 'Normal'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.stockFilterPill,
+            stockFilter === 'low' && styles.stockFilterPillWarningActive,
+            lowStockCount > 0 && styles.stockFilterHasAlert,
+          ]}
+          onPress={() => setStockFilter('low')}
+        >
+          <Text
+            style={[
+              styles.stockFilterPillText,
+              stockFilter === 'low' && styles.stockFilterPillTextActive,
+              lowStockCount > 0 && { color: '#b45309' },
+            ]}
+          >
+            ⚠️ {isRTL ? 'مخزون منخفض' : 'Faible'} ({lowStockCount})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.stockFilterPill,
+            stockFilter === 'out' && styles.stockFilterPillDangerActive,
+            outOfStockCount > 0 && styles.stockFilterHasDanger,
+          ]}
+          onPress={() => setStockFilter('out')}
+        >
+          <Text
+            style={[
+              styles.stockFilterPillText,
+              stockFilter === 'out' && styles.stockFilterPillTextActive,
+              outOfStockCount > 0 && { color: '#dc2626' },
+            ]}
+          >
+            ❌ {isRTL ? 'نفذ' : 'Rupture'} ({outOfStockCount})
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Category Pills */}
@@ -240,12 +401,12 @@ export default function ProductsScreen() {
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={54} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>
-            {isRTL ? 'لا توجد منتجات مسجلة في فايربيس' : 'Aucun produit dans votre base Firebase'}
+            {isRTL ? 'لا توجد منتجات مطابقة' : 'Aucun produit correspondant'}
           </Text>
           <Text style={styles.emptySub}>
             {isRTL
-              ? 'اضغط على زر الإضافة (+) لإنشاء منتج جديد وحفظه في السحابة.'
-              : 'Cliquez sur Ajouter Produit pour enregistrer vos articles dans Firebase.'}
+              ? 'اضغط على زر الإضافة (+) لإنشاء منتج جديد وحفظه في فايربيس.'
+              : 'Cliquez sur Ajouter (+) pour enregistrer vos articles dans Firebase.'}
           </Text>
 
           <View style={styles.emptyActionsRow}>
@@ -278,7 +439,10 @@ export default function ProductsScreen() {
                 <View style={[styles.productDetails, isRTL && styles.alignRight]}>
                   <View style={[styles.badgeLine, isRTL && styles.rowReverse]}>
                     <Text style={styles.categoryLabel}>{item.category || 'Général'}</Text>
-                    <Text style={styles.barcodeLabel}>#{item.barcode}</Text>
+                    <View style={styles.barcodeLabelBox}>
+                      <Ionicons name="barcode-outline" size={12} color={theme.colors.textMuted} />
+                      <Text style={styles.barcodeLabel}>#{item.barcode}</Text>
+                    </View>
                   </View>
 
                   <Text style={[styles.productTitle, isRTL && styles.textRight]}>
@@ -294,8 +458,37 @@ export default function ProductsScreen() {
                       +{formatMoney(unitProfit)} {isRTL ? 'ربح' : 'marge'}
                     </Text>
                   </View>
+
+                  {/* Quick Stock Adjusters (+5, +10, -1) */}
+                  <View style={[styles.quickStockRow, isRTL && styles.rowReverse]}>
+                    <Text style={styles.quickStockLabel}>
+                      {isRTL ? 'تعديل سريع:' : 'Ajuster stock:'}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.quickStockBtn}
+                      onPress={() => handleQuickStock(item, 5)}
+                      title="+5"
+                    >
+                      <Text style={styles.quickStockBtnText}>+5</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.quickStockBtn}
+                      onPress={() => handleQuickStock(item, 10)}
+                      title="+10"
+                    >
+                      <Text style={styles.quickStockBtnText}>+10</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.quickStockBtn, styles.quickStockBtnMinus]}
+                      onPress={() => handleQuickStock(item, -1)}
+                      title="-1"
+                    >
+                      <Text style={styles.quickStockBtnMinusText}>-1</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
+                {/* Stock Badge & Edit/Delete Controls */}
                 <View style={styles.stockActionsCol}>
                   <View
                     style={[
@@ -366,8 +559,18 @@ export default function ProductsScreen() {
                 <TouchableOpacity
                   style={styles.genBarcodeBtn}
                   onPress={() => setBarcode(Math.floor(6130000000 + Math.random() * 999999).toString())}
+                  title="Générer EAN-13"
                 >
                   <Ionicons name="refresh" size={18} color="#ffffff" />
+                  <Text style={styles.genBtnText}>{isRTL ? 'توليد' : 'Générer'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.scanCodeModalBtn}
+                  onPress={() => setScannerModalVisible(true)}
+                  title="Scanner"
+                >
+                  <Ionicons name="camera-outline" size={18} color="#ffffff" />
                 </TouchableOpacity>
               </View>
 
@@ -457,6 +660,55 @@ export default function ProductsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Quick Barcode Scanner for Add/Edit Form */}
+      <Modal visible={scannerModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.scanHelperCard}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <Text style={styles.modalTitle}>{isRTL ? 'مسح كود بار' : 'Scanner Code-barres'}</Text>
+              <TouchableOpacity onPress={() => setScannerModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.scanViewfinder}>
+              <Ionicons name="scan-outline" size={60} color="#22c55e" />
+              <Text style={styles.scanViewfinderText}>
+                {isRTL ? 'اكتب أو امسح الباركود لحفظه للمنتج' : 'Scannez ou entrez le code pour ce produit'}
+              </Text>
+            </View>
+
+            <TextInput
+              style={[styles.inputBox, { marginTop: 12 }, isRTL && styles.textRight]}
+              placeholder="Ex: 613123456789"
+              value={scannedCodeInput}
+              onChangeText={setScannedCodeInput}
+              autoFocus
+              onSubmitEditing={() => {
+                if (scannedCodeInput.trim()) {
+                  setBarcode(scannedCodeInput.trim());
+                  setScannedCodeInput('');
+                  setScannerModalVisible(false);
+                }
+              }}
+            />
+
+            <TouchableOpacity
+              style={styles.saveBtn}
+              onPress={() => {
+                if (scannedCodeInput.trim()) {
+                  setBarcode(scannedCodeInput.trim());
+                  setScannedCodeInput('');
+                  setScannerModalVisible(false);
+                }
+              }}
+            >
+              <Text style={styles.saveBtnText}>{isRTL ? 'تأكيد الرمز' : 'Valider ce code'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -488,7 +740,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
     elevation: 2,
-    marginRight: theme.spacing.sm,
+    marginRight: 6,
   },
   searchInput: {
     flex: 1,
@@ -496,14 +748,21 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     fontSize: theme.typography.regular,
   },
-  addBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.primary,
-    justifyContent: 'center',
+  csvExportBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    elevation: 3,
+    backgroundColor: '#059669',
+    height: 40,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    marginRight: 6,
+    elevation: 2,
+  },
+  csvBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   cloudSyncBtn: {
     width: 40,
@@ -515,13 +774,22 @@ const styles = StyleSheet.create({
     marginRight: 6,
     elevation: 2,
   },
+  addBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+  },
   syncStatusBanner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
     marginHorizontal: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
+    marginBottom: 6,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: 6,
     borderRadius: theme.borderRadius.md,
@@ -556,6 +824,46 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: theme.colors.textMuted,
   },
+  stockFilterTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: theme.spacing.md,
+    marginBottom: 6,
+  },
+  stockFilterPill: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    marginRight: 6,
+  },
+  stockFilterPillActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  stockFilterPillWarningActive: {
+    backgroundColor: '#f59e0b',
+    borderColor: '#f59e0b',
+  },
+  stockFilterPillDangerActive: {
+    backgroundColor: '#ef4444',
+    borderColor: '#ef4444',
+  },
+  stockFilterHasAlert: {
+    borderColor: '#f59e0b',
+  },
+  stockFilterHasDanger: {
+    borderColor: '#ef4444',
+  },
+  stockFilterPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
+  },
+  stockFilterPillTextActive: {
+    color: '#ffffff',
+  },
   categoryContainer: {
     marginBottom: theme.spacing.sm,
   },
@@ -563,7 +871,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
   },
   categoryChip: {
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
     backgroundColor: theme.colors.surface,
@@ -596,6 +904,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     elevation: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   productDetails: {
     flex: 1,
@@ -614,9 +924,14 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginRight: 6,
   },
+  barcodeLabelBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   barcodeLabel: {
     fontSize: 11,
     color: theme.colors.textMuted,
+    marginLeft: 2,
   },
   productTitle: {
     fontSize: theme.typography.regular,
@@ -626,7 +941,7 @@ const styles = StyleSheet.create({
   priceStatsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 4,
   },
   sellPriceText: {
     fontSize: theme.typography.medium,
@@ -643,6 +958,36 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.small,
     color: theme.colors.secondary,
     fontWeight: '600',
+  },
+  quickStockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  quickStockLabel: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginRight: 6,
+  },
+  quickStockBtn: {
+    backgroundColor: '#dbeafe',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: theme.borderRadius.sm,
+    marginRight: 6,
+  },
+  quickStockBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#1d4ed8',
+  },
+  quickStockBtnMinus: {
+    backgroundColor: '#fee2e2',
+  },
+  quickStockBtnMinusText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#dc2626',
   },
   stockActionsCol: {
     alignItems: 'flex-end',
@@ -756,9 +1101,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
     maxHeight: '90%',
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
     elevation: 10,
   },
   modalHeader: {
@@ -803,10 +1145,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   genBarcodeBtn: {
-    width: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
     height: 44,
     borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.secondary,
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  genBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+  scanCodeModalBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 6,
@@ -826,5 +1184,26 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: 'bold',
     fontSize: theme.typography.medium,
+  },
+  scanHelperCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+  },
+  scanViewfinder: {
+    height: 120,
+    backgroundColor: '#0f172a',
+    borderRadius: theme.borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 10,
+  },
+  scanViewfinderText: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
   },
 });

@@ -10,6 +10,7 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Linking,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
@@ -19,22 +20,34 @@ export default function POSScreen() {
   const {
     t,
     formatMoney,
-    products,
-    customers,
+    products = [],
+    customers = [],
     completeSale,
     isRTL,
     storeInfo,
+    currentUser,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [cart, setCart] = useState([]);
-  const [discount, setDiscount] = useState(0);
+  
+  // Barcode Fast Scan State
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [scanFeedback, setScanFeedback] = useState(null); // { type: 'success' | 'error', text: '' }
+  const [scannerModalVisible, setScannerModalVisible] = useState(false);
 
-  // Modals
+  // Discount & Checkout
+  const [discount, setDiscount] = useState(0);
+  const [discountType, setDiscountType] = useState('fixed'); // 'fixed' | 'percent'
   const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
   const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [lastCompletedSale, setLastCompletedSale] = useState(null);
+
+  // Sharing contact state
+  const [sharePhone, setSharePhone] = useState('');
+  const [shareEmail, setShareEmail] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   // Payment State
   const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash' | 'credit' | 'partial'
@@ -42,14 +55,21 @@ export default function POSScreen() {
   const [paidAmountInput, setPaidAmountInput] = useState('');
 
   // Categories list
-  const categories = ['All', ...new Set(products.map((p) => p.category))];
+  const validProducts = Array.isArray(products) ? products : [];
+  const categories = ['All', ...new Set(validProducts.map((p) => p.category).filter(Boolean))];
 
   // Filtered Products
-  const filteredProducts = products.filter((p) => {
+  const filteredProducts = validProducts.filter((p) => {
+    if (!p) return false;
+    const barcodeStr = p.barcode ? String(p.barcode) : '';
+    const nameFrStr = p.nameFr ? String(p.nameFr).toLowerCase() : '';
+    const nameArStr = p.nameAr ? String(p.nameAr) : '';
+    const q = searchQuery.toLowerCase().trim();
+
     const matchesSearch =
-      p.barcode.includes(searchQuery) ||
-      (p.nameFr && p.nameFr.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (p.nameAr && p.nameAr.includes(searchQuery));
+      barcodeStr.includes(q) ||
+      nameFrStr.includes(q) ||
+      nameArStr.includes(q);
     const matchesCategory =
       selectedCategory === 'All' || p.category === selectedCategory;
     return matchesSearch && matchesCategory;
@@ -57,6 +77,7 @@ export default function POSScreen() {
 
   // Cart operations
   const addToCart = (product) => {
+    if (!product) return;
     if (product.stock <= 0) {
       Alert.alert(t('outOfStock'), isRTL ? 'هذا المنتج نفذ من المخزن!' : 'Ce produit est en rupture de stock !');
       return;
@@ -100,9 +121,55 @@ export default function POSScreen() {
     setDiscount(0);
   };
 
+  // Barcode scanning handler (works with physical barcode gun / scanner / typed input)
+  const handleBarcodeScan = (manualCode) => {
+    const code = (manualCode || barcodeInput).trim();
+    if (!code) return;
+
+    const found = validProducts.find(
+      (p) => String(p.barcode || '').trim().toLowerCase() === code.toLowerCase()
+    );
+
+    if (found) {
+      if (found.stock <= 0) {
+        setScanFeedback({
+          type: 'error',
+          text: isRTL
+            ? `⚠️ ${found.nameAr || found.nameFr} غير متوفر في المخزن (0)!`
+            : `⚠️ ${found.nameFr} est en rupture de stock !`,
+        });
+      } else {
+        addToCart(found);
+        setScanFeedback({
+          type: 'success',
+          text: isRTL
+            ? `✅ أضيف: ${found.nameAr || found.nameFr}`
+            : `✅ Ajouté : ${found.nameFr}`,
+        });
+      }
+      setBarcodeInput('');
+    } else {
+      setScanFeedback({
+        type: 'error',
+        text: isRTL
+          ? `❌ كود بار [${code}] غير مسجل في المخزون!`
+          : `❌ Code-barres [${code}] introuvable !`,
+      });
+    }
+
+    setTimeout(() => {
+      setScanFeedback(null);
+    }, 3500);
+  };
+
   // Calculations
-  const subtotal = cart.reduce((sum, item) => sum + item.sellPrice * item.quantity, 0);
-  const total = Math.max(0, subtotal - Number(discount || 0));
+  const subtotal = cart.reduce((sum, item) => sum + Number(item.sellPrice || 0) * Number(item.quantity || 1), 0);
+  const calculatedDiscount =
+    discountType === 'percent'
+      ? (subtotal * Math.min(100, Math.max(0, Number(discount || 0)))) / 100
+      : Math.min(subtotal, Math.max(0, Number(discount || 0)));
+
+  const total = Math.max(0, subtotal - calculatedDiscount);
   const change = Math.max(0, Number(paidAmountInput || 0) - total);
   const remainingCredit = Math.max(0, total - Number(paidAmountInput || 0));
 
@@ -118,7 +185,7 @@ export default function POSScreen() {
     const { sale, lowStockWarnings } = await completeSale({
       items: cart,
       subtotal,
-      discount: Number(discount || 0),
+      discount: calculatedDiscount,
       total,
       paidAmount: paymentMethod === 'cash' ? total : Number(paidAmountInput || 0),
       paymentMethod,
@@ -127,6 +194,16 @@ export default function POSScreen() {
 
     setLastCompletedSale(sale);
     setCheckoutModalVisible(false);
+
+    // Pre-fill phone if client is selected
+    const chosenCust = (customers || []).find((c) => c.id === selectedCustomerId);
+    if (chosenCust?.phone) {
+      setSharePhone(chosenCust.phone);
+    } else {
+      setSharePhone('');
+    }
+    setShareEmail('');
+
     clearCart();
     setPaidAmountInput('');
     setSelectedCustomerId('');
@@ -146,9 +223,152 @@ export default function POSScreen() {
     }
   };
 
+  // Generate formatted printable / readable text ticket
+  const generateReceiptText = (sale) => {
+    if (!sale) return '';
+    const dateStr = sale.date ? new Date(sale.date).toLocaleString() : new Date().toLocaleString();
+    const chosenCust = (customers || []).find((c) => c.id === sale.customerId);
+
+    const lines = [];
+    lines.push(`🧾 *${storeInfo.name || 'Store Soft'}*`);
+    if (storeInfo.address) lines.push(`📍 ${storeInfo.address}`);
+    if (storeInfo.phone) lines.push(`📞 ${storeInfo.phone}`);
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`📅 Date : ${dateStr}`);
+    if (sale.cashierName || sale.cashier) {
+      lines.push(`👤 Caissier : ${sale.cashierName || sale.cashier}`);
+    }
+    if (chosenCust) {
+      lines.push(`👥 Client : ${chosenCust.name}`);
+    }
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(`🛒 ARTICLES :`);
+    (sale.items || []).forEach((item) => {
+      const name = item.nameFr || item.nameAr || 'Article';
+      lines.push(`• ${name} x${item.quantity} = ${formatMoney(item.sellPrice * item.quantity)}`);
+    });
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+    if (sale.discount > 0) {
+      lines.push(`Remise : -${formatMoney(sale.discount)}`);
+    }
+    lines.push(`💰 *TOTAL : ${formatMoney(sale.total)}*`);
+    lines.push(`Mode : ${sale.paymentMethod === 'cash' ? 'Espèces' : 'Crédit'}`);
+
+    if (sale.paymentMethod === 'credit' && chosenCust) {
+      lines.push(`Solde crédit client : ${formatMoney(chosenCust.debt)}`);
+    }
+
+    lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+    lines.push(storeInfo.footer || 'Merci pour votre visite !');
+    return lines.join('\n');
+  };
+
+  // Send receipt via WhatsApp
+  const handleSendWhatsApp = (sale) => {
+    const text = generateReceiptText(sale);
+    const cleanPhone = (sharePhone || '').replace(/[^0-9]/g, '');
+    let url = '';
+
+    if (cleanPhone) {
+      const intlPhone = cleanPhone.startsWith('0') ? '213' + cleanPhone.substring(1) : cleanPhone;
+      url = `https://wa.me/${intlPhone}?text=${encodeURIComponent(text)}`;
+    } else {
+      url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    }
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(url, '_blank');
+    } else {
+      Linking.openURL(url).catch(() => {
+        Alert.alert('WhatsApp', text);
+      });
+    }
+  };
+
+  // Send receipt via Email
+  const handleSendEmail = (sale) => {
+    const text = generateReceiptText(sale);
+    const subject = `Facture / Ticket - ${storeInfo.name || 'Store Soft'}`;
+    const cleanMail = (shareEmail || '').trim();
+    const mailto = `mailto:${cleanMail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(mailto, '_blank');
+    } else {
+      Linking.openURL(mailto).catch(() => {
+        Alert.alert('Email', text);
+      });
+    }
+  };
+
+  // Copy receipt to clipboard
+  const handleCopyReceipt = (sale) => {
+    const text = generateReceiptText(sale);
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 2500);
+    } else {
+      Alert.alert(isRTL ? 'تم نسخ التذكرة' : 'Ticket copié', text);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* Search & Barcode input bar */}
+      {/* 1. Barcode Scanner Fast-Entry Bar */}
+      <View style={[styles.barcodeScanBar, isRTL && styles.rowReverse]}>
+        <View style={styles.barcodeIconBox}>
+          <Ionicons name="barcode-outline" size={24} color={theme.colors.primary} />
+        </View>
+        <TextInput
+          style={[styles.barcodeInput, isRTL && styles.textRight]}
+          placeholder={
+            isRTL
+              ? 'امسح بالباركود أو اكتب الرقم ثم Enter...'
+              : 'Scanner au lecteur code-barres ou taper...'
+          }
+          placeholderTextColor={theme.colors.textMuted}
+          value={barcodeInput}
+          onChangeText={setBarcodeInput}
+          onSubmitEditing={() => handleBarcodeScan()}
+          returnKeyType="done"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {barcodeInput.length > 0 && (
+          <TouchableOpacity style={styles.barcodeActionBtn} onPress={() => handleBarcodeScan()}>
+            <Ionicons name="arrow-forward-circle" size={26} color={theme.colors.primary} />
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={styles.cameraScanBtn}
+          onPress={() => setScannerModalVisible(true)}
+          title="Scanner"
+        >
+          <Ionicons name="camera-outline" size={20} color="#ffffff" />
+          <Text style={styles.cameraScanBtnText}>{isRTL ? 'ماسح' : 'Scanner'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Instant Scan Toast / Feedback */}
+      {scanFeedback && (
+        <View
+          style={[
+            styles.scanFeedbackBanner,
+            scanFeedback.type === 'error' ? styles.bgDanger : styles.bgSuccess,
+            isRTL && styles.rowReverse,
+          ]}
+        >
+          <Ionicons
+            name={scanFeedback.type === 'error' ? 'alert-circle' : 'checkmark-circle'}
+            size={18}
+            color="#ffffff"
+          />
+          <Text style={styles.scanFeedbackText}>{scanFeedback.text}</Text>
+        </View>
+      )}
+
+      {/* 2. Text Search Bar */}
       <View style={[styles.searchBar, isRTL && styles.rowReverse]}>
         <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
         <TextInput
@@ -215,7 +435,10 @@ export default function POSScreen() {
               <Text style={[styles.productName, isRTL && styles.textRight]} numberOfLines={2}>
                 {isRTL ? item.nameAr || item.nameFr : item.nameFr}
               </Text>
-              <Text style={styles.productBarcode}>#{item.barcode}</Text>
+              <View style={[styles.productBarcodeRow, isRTL && styles.rowReverse]}>
+                <Ionicons name="barcode-outline" size={13} color={theme.colors.textMuted} />
+                <Text style={styles.productBarcode}>#{item.barcode}</Text>
+              </View>
 
               <View style={[styles.productBottomRow, isRTL && styles.rowReverse]}>
                 <Text style={styles.productPrice}>{formatMoney(item.sellPrice)}</Text>
@@ -250,11 +473,11 @@ export default function POSScreen() {
           <View style={styles.emptyProductsBox}>
             <Ionicons name="cart-outline" size={48} color={theme.colors.textMuted} />
             <Text style={styles.emptyProductsTitle}>
-              {isRTL ? 'لا توجد منتجات مسجلة في المتجر' : 'Aucun produit disponible en caisse'}
+              {isRTL ? 'لا توجد منتجات مطابقة في المتجر' : 'Aucun produit disponible en caisse'}
             </Text>
             <Text style={styles.emptyProductsSub}>
               {isRTL
-                ? 'يرجى التوجه إلى قسم (المنتجات) لإضافة سلع إلى المخزون.'
+                ? 'يرجى التوجه إلى قسم (المنتجات) لإضافة سلع إلى المخزون أو مسح كود بار.'
                 : 'Veuillez ajouter des articles dans l\'onglet Produits pour enregistrer des ventes.'}
             </Text>
           </View>
@@ -328,16 +551,44 @@ export default function POSScreen() {
                 </View>
               ))}
 
-              {/* Discount Input */}
-              <View style={[styles.discountRow, isRTL && styles.rowReverse]}>
-                <Text style={styles.discountLabel}>{t('discount')} :</Text>
-                <TextInput
-                  style={[styles.discountInput, isRTL && styles.textRight]}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  value={discount.toString()}
-                  onChangeText={(val) => setDiscount(Number(val) || 0)}
-                />
+              {/* Discount / Remise (DZD ou %) */}
+              <View style={[styles.discountContainer, isRTL && styles.rowReverse]}>
+                <View style={[styles.discountHeader, isRTL && styles.rowReverse]}>
+                  <Text style={styles.discountLabel}>{t('discount')} :</Text>
+                  <View style={styles.discountTypeToggle}>
+                    <TouchableOpacity
+                      style={[styles.toggleBtn, discountType === 'fixed' && styles.toggleBtnActive]}
+                      onPress={() => setDiscountType('fixed')}
+                    >
+                      <Text style={[styles.toggleBtnText, discountType === 'fixed' && styles.toggleBtnTextActive]}>
+                        DZD
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.toggleBtn, discountType === 'percent' && styles.toggleBtnActive]}
+                      onPress={() => setDiscountType('percent')}
+                    >
+                      <Text style={[styles.toggleBtnText, discountType === 'percent' && styles.toggleBtnTextActive]}>
+                        %
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={[styles.discountInputRow, isRTL && styles.rowReverse]}>
+                  <TextInput
+                    style={[styles.discountInput, isRTL && styles.textRight]}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    value={discount.toString()}
+                    onChangeText={(val) => setDiscount(Number(val) || 0)}
+                  />
+                  {discountType === 'percent' && discount > 0 && (
+                    <Text style={styles.discountEquivalent}>
+                      = -{formatMoney(calculatedDiscount)}
+                    </Text>
+                  )}
+                </View>
               </View>
 
               {/* Total Banner */}
@@ -487,23 +738,111 @@ export default function POSScreen() {
         </View>
       </Modal>
 
-      {/* Thermal Receipt Preview Modal */}
+      {/* 3. Barcode Scanner Camera & Quick Tester Modal */}
+      <Modal visible={scannerModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.scannerModalCard}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="scan" size={22} color={theme.colors.primary} style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>
+                  {isRTL ? 'ماسح الباركود' : 'Scanner Code-barres'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setScannerModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 420 }}>
+              {/* Simulated Camera Viewfinder */}
+              <View style={styles.viewfinderFrame}>
+                <View style={styles.viewfinderScanLine} />
+                <Ionicons name="barcode-outline" size={60} color="#22c55e" />
+                <Text style={styles.viewfinderHelp}>
+                  {isRTL
+                    ? 'وجه الكاميرا أو قارئ الباركود نحو كود المنتج'
+                    : 'Pointez votre lecteur ou saisissez le code ci-dessous'}
+                </Text>
+              </View>
+
+              {/* Fast Manual Input */}
+              <View style={[styles.scannerInputRow, isRTL && styles.rowReverse]}>
+                <TextInput
+                  style={[styles.scannerModalInput, isRTL && styles.textRight]}
+                  placeholder={isRTL ? 'اكتب كود بار هنا...' : 'Saisir un code-barres...'}
+                  value={barcodeInput}
+                  onChangeText={setBarcodeInput}
+                  onSubmitEditing={() => {
+                    handleBarcodeScan();
+                    setScannerModalVisible(false);
+                  }}
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={styles.scannerModalValidateBtn}
+                  onPress={() => {
+                    handleBarcodeScan();
+                    setScannerModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.scannerModalValidateBtnText}>
+                    {isRTL ? 'إضافة' : 'Ajouter'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Quick-tap products with barcode */}
+              <Text style={[styles.scannerQuickTitle, isRTL && styles.textRight]}>
+                {isRTL ? 'أو اختر منتجاً بنقرة واحدة:' : 'Ou cliquez sur un produit pour simuler :'}
+              </Text>
+              {validProducts.slice(0, 10).map((prod) => (
+                <TouchableOpacity
+                  key={prod.id}
+                  style={[styles.scannerProductItem, isRTL && styles.rowReverse]}
+                  onPress={() => {
+                    handleBarcodeScan(prod.barcode);
+                    setScannerModalVisible(false);
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.scannerProdName}>
+                      {isRTL ? prod.nameAr || prod.nameFr : prod.nameFr}
+                    </Text>
+                    <Text style={styles.scannerProdCode}>#{prod.barcode}</Text>
+                  </View>
+                  <Text style={styles.scannerProdPrice}>{formatMoney(prod.sellPrice)}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 4. Thermal Receipt & Direct Share Modal (WhatsApp, Email, Print) */}
       <Modal visible={receiptModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.receiptContainer}>
             <ScrollView contentContainerStyle={styles.receiptContent}>
-              <Text style={styles.receiptStoreName}>{storeInfo.name}</Text>
-              <Text style={styles.receiptSub}>{storeInfo.phone} • {storeInfo.address}</Text>
+              <Text style={styles.receiptStoreName}>{storeInfo.name || 'Store Soft'}</Text>
+              <Text style={styles.receiptSub}>
+                {storeInfo.phone} • {storeInfo.address}
+              </Text>
               <Text style={styles.receiptDivider}>--------------------------------</Text>
               <Text style={styles.receiptDate}>
                 {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
               </Text>
+              {lastCompletedSale?.cashierName && (
+                <Text style={styles.receiptCashierText}>
+                  {isRTL ? 'البائع:' : 'Caissier :'} {lastCompletedSale.cashierName}
+                </Text>
+              )}
               <Text style={styles.receiptDivider}>--------------------------------</Text>
 
-              {lastCompletedSale?.items.map((item, index) => (
+              {(lastCompletedSale?.items || []).map((item, index) => (
                 <View key={index} style={styles.receiptItemRow}>
                   <Text style={styles.receiptItemName}>
-                    {item.nameFr} x{item.quantity}
+                    {item.nameFr || item.nameAr} x{item.quantity}
                   </Text>
                   <Text style={styles.receiptItemTotal}>
                     {formatMoney(item.sellPrice * item.quantity)}
@@ -512,6 +851,16 @@ export default function POSScreen() {
               ))}
 
               <Text style={styles.receiptDivider}>--------------------------------</Text>
+
+              {lastCompletedSale?.discount > 0 && (
+                <View style={styles.receiptDiscountRow}>
+                  <Text style={styles.receiptDiscountLabel}>{t('discount')}</Text>
+                  <Text style={styles.receiptDiscountVal}>
+                    -{formatMoney(lastCompletedSale.discount)}
+                  </Text>
+                </View>
+              )}
+
               <View style={styles.receiptTotalRow}>
                 <Text style={styles.receiptTotalLabel}>{t('total')}</Text>
                 <Text style={styles.receiptTotalVal}>{formatMoney(lastCompletedSale?.total || 0)}</Text>
@@ -522,24 +871,87 @@ export default function POSScreen() {
               </Text>
 
               <Text style={styles.receiptDivider}>--------------------------------</Text>
-              <Text style={styles.receiptFooter}>{storeInfo.footer}</Text>
+              <Text style={styles.receiptFooter}>{storeInfo.footer || 'Merci pour votre visite !'}</Text>
+
+              {/* Instant Share Inputs (WhatsApp & Email) */}
+              <View style={styles.shareSectionBox}>
+                <Text style={[styles.shareSectionTitle, isRTL && styles.textRight]}>
+                  {isRTL ? 'إرسال الفاتورة مباشرة للزبون :' : 'Envoyer la facture directement au client :'}
+                </Text>
+
+                {/* WhatsApp Direct */}
+                <View style={[styles.shareInputRow, isRTL && styles.rowReverse]}>
+                  <View style={styles.shareInputWrapper}>
+                    <Ionicons name="logo-whatsapp" size={18} color="#25D366" style={{ marginHorizontal: 6 }} />
+                    <TextInput
+                      style={[styles.shareInput, isRTL && styles.textRight]}
+                      placeholder="0555... / +213"
+                      keyboardType="phone-pad"
+                      value={sharePhone}
+                      onChangeText={setSharePhone}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.whatsAppShareBtn}
+                    onPress={() => handleSendWhatsApp(lastCompletedSale)}
+                  >
+                    <Ionicons name="logo-whatsapp" size={16} color="#ffffff" />
+                    <Text style={styles.shareBtnText}>WhatsApp</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Email Direct */}
+                <View style={[styles.shareInputRow, isRTL && styles.rowReverse]}>
+                  <View style={styles.shareInputWrapper}>
+                    <Ionicons name="mail-outline" size={18} color="#3b82f6" style={{ marginHorizontal: 6 }} />
+                    <TextInput
+                      style={[styles.shareInput, isRTL && styles.textRight]}
+                      placeholder="email@client.com"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      value={shareEmail}
+                      onChangeText={setShareEmail}
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={styles.emailShareBtn}
+                    onPress={() => handleSendEmail(lastCompletedSale)}
+                  >
+                    <Ionicons name="mail" size={16} color="#ffffff" />
+                    <Text style={styles.shareBtnText}>Email</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </ScrollView>
 
+            {/* Receipt Modal Bottom Actions */}
             <View style={styles.receiptActions}>
               <TouchableOpacity
                 style={styles.receiptPrintBtn}
                 onPress={() => {
                   if (Platform.OS === 'web' && typeof window !== 'undefined' && window.print) {
                     window.print();
-                    setReceiptModalVisible(false);
                     return;
                   }
                   Alert.alert(t('printReceipt'), isRTL ? 'تم إرسال أمر الطباعة إلى الطابعة الحرارية!' : 'Impression thermique envoyée !');
-                  setReceiptModalVisible(false);
                 }}
               >
-                <Ionicons name="print" size={20} color="#ffffff" />
+                <Ionicons name="print" size={18} color="#ffffff" />
                 <Text style={styles.receiptPrintBtnText}>{t('printReceipt')}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.receiptCopyBtn}
+                onPress={() => handleCopyReceipt(lastCompletedSale)}
+              >
+                <Ionicons
+                  name={copyFeedback ? 'checkmark' : 'copy-outline'}
+                  size={18}
+                  color={copyFeedback ? '#22c55e' : theme.colors.text}
+                />
+                <Text style={[styles.receiptCopyBtnText, copyFeedback && { color: '#22c55e' }]}>
+                  {copyFeedback ? (isRTL ? 'تم النسخ' : 'Copié !') : (isRTL ? 'نسخ' : 'Copier')}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -567,11 +979,78 @@ const styles = StyleSheet.create({
   textRight: {
     textAlign: 'right',
   },
+  barcodeScanBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    marginHorizontal: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+  },
+  barcodeIconBox: {
+    marginRight: 8,
+  },
+  barcodeInput: {
+    flex: 1,
+    height: 42,
+    fontSize: 14,
+    color: theme.colors.text,
+  },
+  barcodeActionBtn: {
+    paddingHorizontal: 6,
+  },
+  cameraScanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.sm,
+    marginLeft: 6,
+  },
+  cameraScanBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
+  scanFeedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: theme.spacing.md,
+    marginTop: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.sm,
+  },
+  bgSuccess: {
+    backgroundColor: '#16a34a',
+  },
+  bgDanger: {
+    backgroundColor: '#dc2626',
+  },
+  scanFeedbackText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 6,
+    flex: 1,
+  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    margin: theme.spacing.md,
+    marginHorizontal: theme.spacing.md,
+    marginTop: 8,
+    marginBottom: 8,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
     elevation: 2,
@@ -584,7 +1063,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    height: 44,
+    height: 42,
     fontSize: theme.typography.regular,
     color: theme.colors.text,
   },
@@ -621,16 +1100,16 @@ const styles = StyleSheet.create({
   },
   productCard: {
     flex: 1,
-    margin: theme.spacing.xs,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.borderRadius.md,
     padding: theme.spacing.md,
+    margin: theme.spacing.xs,
     elevation: 2,
     shadowColor: '#000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
-    minHeight: 120,
-    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   productCardDisabled: {
     opacity: 0.5,
@@ -639,65 +1118,71 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.secondary,
     borderRadius: theme.borderRadius.full,
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
   inCartBadgeText: {
     color: '#ffffff',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 'bold',
   },
   productName: {
-    fontSize: theme.typography.regular,
-    fontWeight: '600',
+    fontSize: theme.typography.medium,
+    fontWeight: 'bold',
     color: theme.colors.text,
+    marginBottom: 2,
+  },
+  productBarcodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   productBarcode: {
     fontSize: 11,
     color: theme.colors.textMuted,
-    marginTop: 2,
+    marginLeft: 4,
   },
   productBottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: theme.spacing.sm,
+    marginTop: 'auto',
   },
   productPrice: {
-    fontSize: theme.typography.medium,
+    fontSize: theme.typography.regular,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
   stockBadge: {
-    paddingHorizontal: 6,
     paddingVertical: 2,
+    paddingHorizontal: 6,
     borderRadius: theme.borderRadius.sm,
   },
   stockBadgeIn: {
-    backgroundColor: theme.colors.successLight,
+    backgroundColor: '#dcfce7',
   },
   stockBadgeLow: {
-    backgroundColor: theme.colors.warningLight,
+    backgroundColor: '#fef3c7',
   },
   stockBadgeOut: {
-    backgroundColor: theme.colors.dangerLight,
+    backgroundColor: '#fee2e2',
   },
   stockBadgeText: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   stockTextIn: {
-    color: theme.colors.success,
+    color: '#15803d',
   },
   stockTextLow: {
-    color: theme.colors.warning,
+    color: '#b45309',
   },
   stockTextOut: {
-    color: theme.colors.danger,
+    color: '#b91c1c',
   },
   cartBar: {
     position: 'absolute',
@@ -721,7 +1206,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
   },
   cartTotalAmount: {
-    fontSize: theme.typography.title,
+    fontSize: theme.typography.header,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
@@ -732,8 +1217,6 @@ const styles = StyleSheet.create({
   clearCartBtn: {
     padding: theme.spacing.sm,
     marginRight: theme.spacing.sm,
-    backgroundColor: theme.colors.dangerLight,
-    borderRadius: theme.borderRadius.md,
   },
   checkoutBtn: {
     flexDirection: 'row',
@@ -744,24 +1227,27 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.full,
   },
   checkoutBtnDisabled: {
-    backgroundColor: theme.colors.textMuted,
+    backgroundColor: theme.colors.border,
   },
   checkoutBtnText: {
     color: '#ffffff',
-    fontWeight: 'bold',
     fontSize: theme.typography.medium,
-    marginRight: 6,
+    fontWeight: 'bold',
+    marginRight: theme.spacing.xs,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
   },
   modalContent: {
     backgroundColor: theme.colors.surface,
-    borderTopLeftRadius: theme.borderRadius.xl,
-    borderTopRightRadius: theme.borderRadius.xl,
+    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
+    width: '100%',
+    maxWidth: 500,
     maxHeight: '90%',
   },
   modalHeader: {
@@ -776,21 +1262,20 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   modalScroll: {
-    maxHeight: 450,
+    maxHeight: 400,
   },
   modalSectionLabel: {
-    fontSize: theme.typography.small,
+    fontSize: theme.typography.regular,
     fontWeight: 'bold',
     color: theme.colors.textSecondary,
     marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    textTransform: 'uppercase',
+    marginBottom: theme.spacing.xs,
   },
   cartItemRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: theme.spacing.sm,
+    alignItems: 'center',
+    paddingVertical: theme.spacing.xs,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
@@ -799,7 +1284,7 @@ const styles = StyleSheet.create({
   },
   cartItemTitle: {
     fontSize: theme.typography.regular,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: theme.colors.text,
   },
   cartItemSub: {
@@ -809,86 +1294,133 @@ const styles = StyleSheet.create({
   cartItemQtyControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.borderRadius.full,
-    paddingHorizontal: 4,
+    flex: 1,
+    justifyContent: 'center',
   },
   qtyBtn: {
-    padding: 6,
+    width: 28,
+    height: 28,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   qtyText: {
     fontSize: theme.typography.regular,
     fontWeight: 'bold',
-    paddingHorizontal: 8,
+    marginHorizontal: theme.spacing.sm,
   },
   cartItemTotal: {
-    flex: 1,
-    textAlign: 'right',
+    fontSize: theme.typography.regular,
     fontWeight: 'bold',
     color: theme.colors.text,
+    flex: 1,
+    textAlign: 'right',
   },
-  discountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  discountContainer: {
     marginTop: theme.spacing.md,
+    backgroundColor: '#f8fafc',
+    padding: 10,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  discountHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   discountLabel: {
     fontSize: theme.typography.regular,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  discountTypeToggle: {
+    flexDirection: 'row',
+    backgroundColor: '#e2e8f0',
+    borderRadius: theme.borderRadius.sm,
+    padding: 2,
+  },
+  toggleBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: theme.borderRadius.sm - 2,
+  },
+  toggleBtnActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  toggleBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
     color: theme.colors.textSecondary,
   },
+  toggleBtnTextActive: {
+    color: '#ffffff',
+  },
+  discountInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   discountInput: {
+    flex: 1,
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.sm,
-    width: 100,
-    height: 36,
     paddingHorizontal: theme.spacing.sm,
-    textAlign: 'center',
-    fontSize: theme.typography.regular,
+    paddingVertical: 4,
+    backgroundColor: '#ffffff',
+    fontSize: 14,
+  },
+  discountEquivalent: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.danger,
   },
   totalBanner: {
-    backgroundColor: theme.colors.primaryLight,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: theme.spacing.md,
+    backgroundColor: theme.colors.primaryLight,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    marginVertical: theme.spacing.md,
   },
   totalBannerLabel: {
-    fontSize: theme.typography.medium,
+    fontSize: theme.typography.header,
     fontWeight: 'bold',
-    color: theme.colors.primaryDark,
+    color: theme.colors.primary,
   },
   totalBannerAmount: {
     fontSize: theme.typography.header,
     fontWeight: 'bold',
-    color: theme.colors.primaryDark,
+    color: theme.colors.primary,
   },
   paymentMethodRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: theme.spacing.sm,
+    marginVertical: theme.spacing.sm,
   },
   methodBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
+    padding: theme.spacing.sm,
     borderRadius: theme.borderRadius.md,
-    marginHorizontal: 3,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    marginHorizontal: 4,
   },
   methodBtnActive: {
     backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
   },
   methodBtnText: {
-    fontSize: 11,
+    fontSize: theme.typography.small,
     fontWeight: 'bold',
     color: theme.colors.text,
     marginLeft: 4,
@@ -897,7 +1429,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   calcBox: {
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.sm,
   },
   inputLabel: {
     fontSize: theme.typography.small,
@@ -908,23 +1440,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
-    height: 44,
-    paddingHorizontal: theme.spacing.md,
+    padding: theme.spacing.sm,
     fontSize: theme.typography.medium,
   },
   changeText: {
-    marginTop: 6,
-    fontSize: theme.typography.medium,
+    fontSize: theme.typography.regular,
     color: theme.colors.success,
+    marginTop: 4,
   },
   boldText: {
     fontWeight: 'bold',
-  },
-  debtNotice: {
-    marginTop: 6,
-    fontSize: theme.typography.regular,
-    color: theme.colors.danger,
-    fontWeight: '600',
   },
   customerSelectBox: {
     marginTop: theme.spacing.sm,
@@ -934,11 +1459,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.borderRadius.sm,
-    marginBottom: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: 6,
   },
   customerOptionActive: {
     borderColor: theme.colors.primary,
@@ -956,6 +1480,12 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.small,
     color: theme.colors.danger,
   },
+  debtNotice: {
+    fontSize: theme.typography.small,
+    color: theme.colors.danger,
+    marginTop: 4,
+    fontWeight: '600',
+  },
   confirmSaleBtn: {
     backgroundColor: theme.colors.primary,
     padding: theme.spacing.md,
@@ -968,11 +1498,106 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.medium,
     fontWeight: 'bold',
   },
+  /* Scanner Modal Styles */
+  scannerModalCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+    width: '100%',
+    maxWidth: 440,
+    elevation: 8,
+  },
+  viewfinderFrame: {
+    height: 140,
+    backgroundColor: '#0f172a',
+    borderRadius: theme.borderRadius.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  viewfinderScanLine: {
+    position: 'absolute',
+    top: '50%',
+    left: 10,
+    right: 10,
+    height: 2,
+    backgroundColor: '#ef4444',
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+  },
+  viewfinderHelp: {
+    color: '#94a3b8',
+    fontSize: 11,
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  scannerInputRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  scannerModalInput: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: 10,
+    height: 40,
+    fontSize: 14,
+  },
+  scannerModalValidateBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: theme.borderRadius.sm,
+    marginLeft: 6,
+  },
+  scannerModalValidateBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  scannerQuickTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.textSecondary,
+    marginBottom: 6,
+  },
+  scannerProductItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  scannerProdName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.colors.text,
+  },
+  scannerProdCode: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+  },
+  scannerProdPrice: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
+  /* Receipt Modal Styles */
   receiptContainer: {
     backgroundColor: '#ffffff',
     borderRadius: theme.borderRadius.lg,
-    margin: theme.spacing.lg,
     padding: theme.spacing.lg,
+    width: '100%',
+    maxWidth: 440,
+    maxHeight: '92%',
     elevation: 8,
   },
   receiptContent: {
@@ -987,6 +1612,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666666',
     marginTop: 2,
+    textAlign: 'center',
   },
   receiptDivider: {
     color: '#999999',
@@ -996,6 +1622,12 @@ const styles = StyleSheet.create({
   receiptDate: {
     fontSize: 11,
     color: '#444444',
+  },
+  receiptCashierText: {
+    fontSize: 11,
+    color: theme.colors.primary,
+    fontWeight: 'bold',
+    marginTop: 2,
   },
   receiptItemRow: {
     flexDirection: 'row',
@@ -1012,6 +1644,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#222222',
   },
+  receiptDiscountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginVertical: 2,
+  },
+  receiptDiscountLabel: {
+    fontSize: 12,
+    color: theme.colors.danger,
+  },
+  receiptDiscountVal: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.danger,
+  },
   receiptTotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1025,6 +1672,7 @@ const styles = StyleSheet.create({
   receiptTotalVal: {
     fontSize: 14,
     fontWeight: 'bold',
+    color: theme.colors.primary,
   },
   receiptMethod: {
     fontSize: 11,
@@ -1037,37 +1685,116 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: '#666666',
     marginTop: 4,
+    textAlign: 'center',
+  },
+  shareSectionBox: {
+    width: '100%',
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  shareSectionTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.textSecondary,
+    marginBottom: 8,
+  },
+  shareInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  shareInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: '#f8fafc',
+    paddingHorizontal: 4,
+  },
+  shareInput: {
+    flex: 1,
+    height: 36,
+    fontSize: 12,
+    color: theme.colors.text,
+  },
+  whatsAppShareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#25D366',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.sm,
+    marginLeft: 6,
+  },
+  emailShareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.sm,
+    marginLeft: 6,
+  },
+  shareBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   receiptActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: theme.spacing.md,
+    gap: 6,
   },
   receiptPrintBtn: {
-    flex: 1,
+    flex: 1.2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
-    padding: theme.spacing.sm,
+    paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
-    marginRight: theme.spacing.sm,
   },
   receiptPrintBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    marginLeft: 6,
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  receiptCopyBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingVertical: 10,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: '#f8fafc',
+  },
+  receiptCopyBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginLeft: 4,
   },
   receiptCloseBtn: {
-    padding: theme.spacing.sm,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: theme.borderRadius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.lg,
+    justifyContent: 'center',
   },
   receiptCloseBtnText: {
     color: theme.colors.text,
     fontWeight: '600',
+    fontSize: 12,
   },
   emptyProductsBox: {
     width: '100%',

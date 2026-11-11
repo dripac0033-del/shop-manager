@@ -55,6 +55,36 @@ export default function ExpensesScreen() {
 
   const totalExpenses = (expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
+  const handleExportExpensesCSV = () => {
+    if (!expenses || !expenses.length) {
+      Alert.alert('CSV', isRTL ? 'لا توجد مصاريف لتصديرها!' : 'Aucune dépense à exporter !');
+      return;
+    }
+
+    const headers = ['Motif', 'Categorie', 'Montant DZD', 'Date'];
+    const rows = expenses.map((e) => [
+      `"${(e.title || '').replace(/"/g, '""')}"`,
+      `"${e.category || 'other'}"`,
+      e.amount || 0,
+      `"${e.date ? new Date(e.date).toLocaleDateString() : ''}"`,
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `depenses_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      Alert.alert('CSV', isRTL ? 'تم تصدير ملف المصاريف بنجاح!' : 'Export CSV des dépenses généré avec succès !');
+    }
+  };
+
   const handleAddExpense = async () => {
     if (!title.trim() || !amount) {
       Alert.alert(t('newExpense'), isRTL ? 'يرجى إدخال سبب المصروف والمبلغ!' : 'Veuillez saisir le motif et le montant !');
@@ -192,6 +222,15 @@ export default function ExpensesScreen() {
         </View>
 
         <View style={[styles.headerActions, isRTL && styles.rowReverse]}>
+          <TouchableOpacity
+            style={styles.csvBtn}
+            onPress={handleExportExpensesCSV}
+            title="Exporter CSV"
+          >
+            <Ionicons name="download-outline" size={16} color="#ffffff" />
+            <Text style={styles.csvBtnText}>CSV</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.addExpenseBtn} onPress={() => setAddModalVisible(true)}>
             <Ionicons name="add" size={20} color="#ffffff" />
             <Text style={styles.addExpenseBtnText}>{t('newExpense')}</Text>
@@ -485,6 +524,21 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  csvBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    marginRight: 6,
+  },
+  csvBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 3,
   },
   addExpenseBtn: {
     backgroundColor: 'rgba(255,255,255,0.25)',

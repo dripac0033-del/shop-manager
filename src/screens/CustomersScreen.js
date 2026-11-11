@@ -20,7 +20,7 @@ export default function CustomersScreen() {
   const {
     t,
     formatMoney,
-    customers,
+    customers = [],
     addCustomer,
     updateCustomer,
     deleteCustomer,
@@ -39,7 +39,11 @@ export default function CustomersScreen() {
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [shareDebtCustomer, setShareDebtCustomer] = useState(null);
+  const [shareEmailInput, setShareEmailInput] = useState('');
+  const [copiedDebtText, setCopiedDebtText] = useState(false);
 
   // Add Form State
   const [name, setName] = useState('');
@@ -57,9 +61,10 @@ export default function CustomersScreen() {
   const [payAmount, setPayAmount] = useState('');
   const [payNote, setPayNote] = useState('');
 
-  const totalDebt = (customers || []).reduce((sum, c) => sum + (c.debt || 0), 0);
+  const validCustomers = Array.isArray(customers) ? customers : [];
+  const totalDebt = validCustomers.reduce((sum, c) => sum + (c.debt || 0), 0);
 
-  const filteredCustomers = (customers || []).filter((c) => {
+  const filteredCustomers = validCustomers.filter((c) => {
     if (!c) return false;
     const nameMatch = (c.name || '').toLowerCase().includes(searchQuery.toLowerCase());
     const phoneMatch = c.phone && c.phone.includes(searchQuery);
@@ -104,7 +109,7 @@ export default function CustomersScreen() {
   const handleSaveEdit = async () => {
     if (!selectedCustomer) return;
     if (!editName.trim()) {
-      Alert.alert(t('customerName'), isRTL ? 'يرجى إدخال اسم الزbون!' : 'Veuillez saisir le nom du client !');
+      Alert.alert(t('customerName'), isRTL ? 'يرجى إدخال اسم الزبون!' : 'Veuillez saisir le nom du client !');
       return;
     }
 
@@ -169,7 +174,7 @@ export default function CustomersScreen() {
       const msg = isRTL
         ? `تم تسجيل تسديد مبلغ ${formatMoney(amount)} بنجاح!`
         : `Paiement de ${formatMoney(amount)} enregistré avec succès !`;
-      
+
       if (Platform.OS === 'web') {
         window.alert(msg);
       } else {
@@ -180,21 +185,92 @@ export default function CustomersScreen() {
     }
   };
 
-  const handleShareDebt = (customer) => {
-    const message = isRTL
-      ? `السلام عليكم ${customer.name}، نود تذكيركم بأن رصيدكم المتبقي لدى ${storeInfo.name} هو: ${formatMoney(customer.debt)}. شكراً لتعاملكم معنا!`
-      : `Bonjour ${customer.name}, petit rappel amical concernant votre solde chez ${storeInfo.name} qui s'élève à : ${formatMoney(customer.debt)}. Merci de votre fidélité !`;
+  // Open Debt Share Modal
+  const handleOpenShare = (customer) => {
+    setShareDebtCustomer(customer);
+    setShareEmailInput('');
+    setShareModalVisible(true);
+  };
 
-    const url = `whatsapp://send?phone=${(customer.phone || '').replace(/\s+/g, '')}&text=${encodeURIComponent(message)}`;
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          Linking.openURL(url);
-        } else {
-          Alert.alert(isRTL ? 'رسالة التذكير' : 'Rappel Dette', message);
-        }
-      })
-      .catch(() => Alert.alert(isRTL ? 'رسالة التذكير' : 'Rappel Dette', message));
+  const generateDebtMessage = (customer) => {
+    if (!customer) return '';
+    return isRTL
+      ? `السلام عليكم ${customer.name}،\nنود تذكيركم بأن رصيدكم المتبقي لدى *${storeInfo.name || 'Store Soft'}* هو : *${formatMoney(customer.debt)}*.\nشكراً لتعاملكم معنا وفضل ثقتكم!\n📞 هاتف المحل: ${storeInfo.phone || ''}`
+      : `Bonjour ${customer.name},\nPetit rappel amical concernant votre solde chez *${storeInfo.name || 'Store Soft'}* qui s'élève à : *${formatMoney(customer.debt)}*.\nMerci pour votre fidélité !\n📞 Contact magasin : ${storeInfo.phone || ''}`;
+  };
+
+  const handleSendWhatsApp = (customer) => {
+    const message = generateDebtMessage(customer);
+    const cleanPhone = (customer.phone || '').replace(/[^0-9]/g, '');
+    let url = '';
+
+    if (cleanPhone) {
+      const intlPhone = cleanPhone.startsWith('0') ? '213' + cleanPhone.substring(1) : cleanPhone;
+      url = `https://wa.me/${intlPhone}?text=${encodeURIComponent(message)}`;
+    } else {
+      url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    }
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(url, '_blank');
+    } else {
+      Linking.openURL(url).catch(() => Alert.alert('WhatsApp', message));
+    }
+  };
+
+  const handleSendEmail = (customer) => {
+    const message = generateDebtMessage(customer);
+    const subject = `Rappel de Solde / Relevé - ${storeInfo.name || 'Store Soft'}`;
+    const cleanMail = (shareEmailInput || '').trim();
+    const mailto = `mailto:${cleanMail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.open(mailto, '_blank');
+    } else {
+      Linking.openURL(mailto).catch(() => Alert.alert('Email', message));
+    }
+  };
+
+  const handleCopyDebtMessage = (customer) => {
+    const message = generateDebtMessage(customer);
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(message);
+      setCopiedDebtText(true);
+      setTimeout(() => setCopiedDebtText(false), 2500);
+    } else {
+      Alert.alert(isRTL ? 'تم نسخ نص التذكير' : 'Message copié', message);
+    }
+  };
+
+  // Export Customers to CSV
+  const handleExportCustomersCSV = () => {
+    if (!validCustomers.length) {
+      Alert.alert('CSV', isRTL ? 'لا توجد بيانات زبائن لتصديرها!' : 'Aucun client à exporter !');
+      return;
+    }
+
+    const headers = ['Nom Client', 'Telephone', 'Adresse', 'Dette Actuelle DZD'];
+    const rows = validCustomers.map((c) => [
+      `"${(c.name || '').replace(/"/g, '""')}"`,
+      `"${c.phone || ''}"`,
+      `"${(c.address || '').replace(/"/g, '""')}"`,
+      c.debt || 0,
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((r) => r.join(';'))].join('\n');
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `clients_dettes_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      Alert.alert('CSV', isRTL ? 'تم تصدير ملف الزبائن بنجاح!' : 'Export CSV des clients généré avec succès !');
+    }
   };
 
   return (
@@ -222,9 +298,7 @@ export default function CustomersScreen() {
               : (isRTL ? 'الوضع المحلي (بدون إنترنت)' : 'Mode Local')}
           </Text>
         </View>
-        {lastSyncTime && (
-          <Text style={styles.syncTimeText}>{lastSyncTime}</Text>
-        )}
+        {lastSyncTime && <Text style={styles.syncTimeText}>{lastSyncTime}</Text>}
       </View>
 
       {/* Total Debt Banner */}
@@ -233,13 +307,26 @@ export default function CustomersScreen() {
           <Text style={styles.debtBannerTitle}>{t('totalDebt')}</Text>
           <Text style={styles.debtBannerAmount}>{formatMoney(totalDebt)}</Text>
           <Text style={styles.debtBannerCount}>
-            {(customers || []).filter((c) => (c.debt || 0) > 0).length} {isRTL ? 'زبائن عليهم ديون' : 'clients avec solde débiteur'}
+            {validCustomers.filter((c) => (c.debt || 0) > 0).length}{' '}
+            {isRTL ? 'زبائن عليهم ديون' : 'clients avec solde débiteur'}
           </Text>
         </View>
-        <TouchableOpacity style={styles.newCustBtn} onPress={() => setAddModalVisible(true)}>
-          <Ionicons name="person-add" size={20} color="#ffffff" />
-          <Text style={styles.newCustBtnText}>{t('newCustomer')}</Text>
-        </TouchableOpacity>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity
+            style={styles.csvBtn}
+            onPress={handleExportCustomersCSV}
+            title="Exporter CSV"
+          >
+            <Ionicons name="download-outline" size={16} color="#ffffff" />
+            <Text style={styles.csvBtnText}>CSV</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.newCustBtn} onPress={() => setAddModalVisible(true)}>
+            <Ionicons name="person-add" size={18} color="#ffffff" />
+            <Text style={styles.newCustBtnText}>{t('newCustomer')}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Filter and Search Bar */}
@@ -253,6 +340,11 @@ export default function CustomersScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <TouchableOpacity
@@ -334,12 +426,13 @@ export default function CustomersScreen() {
                       </TouchableOpacity>
                     )}
 
-                    {hasDebt && item.phone && (
+                    {hasDebt && (
                       <TouchableOpacity
                         style={styles.shareBtn}
-                        onPress={() => handleShareDebt(item)}
+                        onPress={() => handleOpenShare(item)}
+                        title="Partager"
                       >
-                        <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
+                        <Ionicons name="share-social-outline" size={16} color="#0284c7" />
                       </TouchableOpacity>
                     )}
 
@@ -401,7 +494,9 @@ export default function CustomersScreen() {
                 placeholder="Ex: Alger Centre"
               />
 
-              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('currentDebt')} ({isRTL ? 'الرصيد الأولي' : 'Solde initial'})</Text>
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                {t('currentDebt')} ({isRTL ? 'الرصيد الأولي' : 'Solde initial'})
+              </Text>
               <TextInput
                 style={[styles.inputBox, isRTL && styles.textRight]}
                 value={initialDebt}
@@ -493,7 +588,8 @@ export default function CustomersScreen() {
               <View style={styles.customerNoticeBanner}>
                 <Text style={styles.noticeCustName}>{selectedCustomer.name}</Text>
                 <Text style={styles.noticeCustDebt}>
-                  {t('currentDebt')} : <Text style={styles.boldRed}>{formatMoney(selectedCustomer.debt || 0)}</Text>
+                  {t('currentDebt')} :{' '}
+                  <Text style={styles.boldRed}>{formatMoney(selectedCustomer.debt || 0)}</Text>
                 </Text>
               </View>
             )}
@@ -517,8 +613,89 @@ export default function CustomersScreen() {
             />
 
             <TouchableOpacity style={styles.submitBtn} onPress={handleConfirmPayment}>
-              <Text style={styles.submitBtnText}>{isRTL ? 'تأكيد التسديد وحفظ' : 'Valider le paiement'}</Text>
+              <Text style={styles.submitBtnText}>
+                {isRTL ? 'تأكيد التسديد وحفظ' : 'Valider le paiement'}
+              </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Share Debt Reminder Modal (WhatsApp, Email, Print, Copy) */}
+      <Modal visible={shareModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <Text style={styles.modalTitle}>
+                {isRTL ? 'إرسال تذكير بالدين' : 'Rappel de Dette / Solde'}
+              </Text>
+              <TouchableOpacity onPress={() => setShareModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {shareDebtCustomer && (
+              <View>
+                <View style={styles.shareCustHeader}>
+                  <Text style={styles.shareCustName}>{shareDebtCustomer.name}</Text>
+                  <Text style={styles.shareCustDebt}>
+                    {isRTL ? 'المبلغ المستحق:' : 'Montant Dû :'} {formatMoney(shareDebtCustomer.debt)}
+                  </Text>
+                </View>
+
+                {/* Formatted Message Preview */}
+                <View style={styles.sharePreviewBox}>
+                  <Text style={styles.sharePreviewText}>
+                    {generateDebtMessage(shareDebtCustomer)}
+                  </Text>
+                </View>
+
+                {/* Direct WhatsApp Share */}
+                <TouchableOpacity
+                  style={styles.modalWhatsAppBtn}
+                  onPress={() => handleSendWhatsApp(shareDebtCustomer)}
+                >
+                  <Ionicons name="logo-whatsapp" size={18} color="#ffffff" />
+                  <Text style={styles.modalShareBtnText}>
+                    {isRTL ? 'إرسال عبر واتساب' : 'Envoyer par WhatsApp'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Direct Email Share */}
+                <View style={styles.shareEmailRow}>
+                  <TextInput
+                    style={[styles.inputBox, { flex: 1, marginRight: 6 }, isRTL && styles.textRight]}
+                    placeholder="email@client.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={shareEmailInput}
+                    onChangeText={setShareEmailInput}
+                  />
+                  <TouchableOpacity
+                    style={styles.modalEmailBtn}
+                    onPress={() => handleSendEmail(shareDebtCustomer)}
+                  >
+                    <Ionicons name="mail" size={16} color="#ffffff" />
+                    <Text style={styles.modalShareBtnText}>Email</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Copy Text Button */}
+                <TouchableOpacity
+                  style={styles.copyMsgBtn}
+                  onPress={() => handleCopyDebtMessage(shareDebtCustomer)}
+                >
+                  <Ionicons
+                    name={copiedDebtText ? 'checkmark' : 'copy-outline'}
+                    size={16}
+                    color={copiedDebtText ? '#16a34a' : theme.colors.text}
+                  />
+                  <Text style={[styles.copyMsgBtnText, copiedDebtText && { color: '#16a34a' }]}>
+                    {copiedDebtText ? (isRTL ? 'تم النسخ!' : 'Message copié !') : (isRTL ? 'نسخ الرسالة' : 'Copier le message')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -582,51 +759,66 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
   },
   debtBanner: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: theme.colors.surface,
     margin: theme.spacing.md,
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    elevation: 3,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   debtBannerInfo: {
     flex: 1,
   },
   debtBannerTitle: {
-    color: '#ffffff',
     fontSize: theme.typography.small,
-    opacity: 0.9,
+    color: theme.colors.textSecondary,
   },
   debtBannerAmount: {
-    color: '#ffffff',
     fontSize: 24,
     fontWeight: 'bold',
+    color: theme.colors.danger,
     marginVertical: 4,
   },
   debtBannerCount: {
-    color: '#ffffff',
-    fontSize: theme.typography.small,
-    opacity: 0.8,
+    fontSize: 11,
+    color: theme.colors.textMuted,
   },
-  newCustBtn: {
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.full,
+  csvBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    marginRight: 6,
+  },
+  csvBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 3,
+  },
+  newCustBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.full,
   },
   newCustBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    marginLeft: 6,
-    fontSize: theme.typography.small,
+    fontSize: 12,
+    marginLeft: 4,
   },
   searchRow: {
     flexDirection: 'row',
-    paddingHorizontal: theme.spacing.md,
+    marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
   },
   searchBar: {
@@ -636,39 +828,40 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
-    marginRight: theme.spacing.sm,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
   searchInput: {
     flex: 1,
-    height: 40,
+    height: 42,
     marginLeft: 6,
-    fontSize: theme.typography.small,
+    fontSize: 13,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 12,
     borderRadius: theme.borderRadius.full,
+    marginLeft: 6,
     borderWidth: 1,
-    borderColor: theme.colors.danger,
-    backgroundColor: theme.colors.dangerLight,
+    borderColor: theme.colors.border,
   },
   filterChipActive: {
     backgroundColor: theme.colors.danger,
+    borderColor: theme.colors.danger,
   },
   filterChipText: {
-    fontSize: theme.typography.small,
-    color: theme.colors.danger,
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
     marginLeft: 4,
-    fontWeight: 'bold',
   },
   filterChipTextActive: {
     color: '#ffffff',
   },
   listContent: {
-    paddingHorizontal: theme.spacing.md,
+    padding: theme.spacing.md,
     paddingBottom: 40,
   },
   customerCard: {
@@ -679,6 +872,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     elevation: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   customerAvatar: {
     width: 44,
@@ -687,7 +882,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.successLight,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: theme.spacing.md,
+    marginRight: 10,
   },
   customerAvatarDebt: {
     backgroundColor: theme.colors.dangerLight,
@@ -696,19 +891,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customerNameText: {
-    fontSize: theme.typography.medium,
+    fontSize: theme.typography.regular,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
   customerPhoneText: {
-    fontSize: theme.typography.small,
+    fontSize: 12,
     color: theme.colors.textSecondary,
     marginTop: 2,
   },
   customerAddressText: {
-    fontSize: theme.typography.small,
+    fontSize: 11,
     color: theme.colors.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
   customerDebtBox: {
     alignItems: 'flex-end',
@@ -729,9 +924,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   payBtn: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 8,
+    backgroundColor: theme.colors.success,
     paddingVertical: 4,
+    paddingHorizontal: 8,
     borderRadius: theme.borderRadius.sm,
     marginRight: 4,
   },
@@ -744,7 +939,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#e0f2fe',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 4,
@@ -772,7 +967,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.xl,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   emptyTitle: {
     fontSize: theme.typography.medium,
@@ -785,25 +979,25 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     textAlign: 'center',
     marginTop: 4,
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
   },
   emptyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.primary,
     paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
   },
   emptyBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 13,
+    fontSize: 12,
     marginLeft: 6,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -826,47 +1020,24 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   modalTitle: {
-    fontSize: theme.typography.medium,
+    fontSize: theme.typography.header,
     fontWeight: 'bold',
     color: theme.colors.text,
-  },
-  customerNoticeBanner: {
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    marginBottom: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  noticeCustName: {
-    fontSize: theme.typography.medium,
-    fontWeight: 'bold',
-    color: theme.colors.text,
-  },
-  noticeCustDebt: {
-    fontSize: theme.typography.small,
-    color: theme.colors.textSecondary,
-    marginTop: 4,
-  },
-  boldRed: {
-    fontWeight: 'bold',
-    color: theme.colors.danger,
   },
   inputLabel: {
-    fontSize: theme.typography.small,
+    fontSize: 12,
     color: theme.colors.textSecondary,
+    marginTop: 8,
     marginBottom: 4,
-    marginTop: theme.spacing.sm,
     fontWeight: '600',
   },
   inputBox: {
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
-    height: 44,
+    height: 42,
     paddingHorizontal: theme.spacing.md,
-    fontSize: theme.typography.regular,
-    backgroundColor: '#ffffff',
+    fontSize: 14,
     color: theme.colors.text,
   },
   submitBtn: {
@@ -879,6 +1050,100 @@ const styles = StyleSheet.create({
   submitBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: theme.typography.medium,
+    fontSize: 14,
+  },
+  customerNoticeBanner: {
+    backgroundColor: '#f8fafc',
+    padding: 10,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  noticeCustName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  noticeCustDebt: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginTop: 2,
+  },
+  boldRed: {
+    color: theme.colors.danger,
+    fontWeight: 'bold',
+  },
+  shareCustHeader: {
+    marginBottom: 10,
+  },
+  shareCustName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  shareCustDebt: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.danger,
+    marginTop: 2,
+  },
+  sharePreviewBox: {
+    backgroundColor: '#f1f5f9',
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  sharePreviewText: {
+    fontSize: 12,
+    color: '#334155',
+    lineHeight: 18,
+  },
+  modalWhatsAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#25D366',
+    paddingVertical: 10,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: 8,
+  },
+  modalEmailBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
+  },
+  modalShareBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+    marginLeft: 6,
+  },
+  shareEmailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  copyMsgBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: '#f8fafc',
+  },
+  copyMsgBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.text,
+    marginLeft: 4,
   },
 });

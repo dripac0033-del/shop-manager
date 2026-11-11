@@ -17,8 +17,8 @@ import { Ionicons } from '@expo/vector-icons';
 export default function LoginScreen() {
   const { login, isRTL, language, setLanguage, storeInfo } = useApp();
 
-  const [username, setUsername] = useState('hadjali49');
-  const [password, setPassword] = useState('arezki12@@');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -88,16 +88,6 @@ export default function LoginScreen() {
             <Text style={styles.appTitle}>{storeInfo.name || 'Store Soft'}</Text>
             <Text style={styles.appSubtitle}>
               {isRTL ? 'نظام إدارة المبيعات والمخزون' : 'Gestion de Caisse & Stock'}
-            </Text>
-          </View>
-
-          {/* Credentials info helper */}
-          <View style={styles.credentialBanner}>
-            <Ionicons name="shield-checkmark" size={18} color={theme.colors.primary} />
-            <Text style={styles.credentialText}>
-              {isRTL
-                ? 'الحساب الافتراضي: hadjali49 / arezki12@@'
-                : 'Compte gérant : hadjali49 / arezki12@@'}
             </Text>
           </View>
 

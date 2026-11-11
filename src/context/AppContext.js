@@ -333,12 +333,33 @@ export const AppProvider = ({ children }) => {
   // AUTHENTICATION & USER MANAGEMENT
   // ==============================================================
   const login = async (usernameInput, passwordInput) => {
+    const cleanUser = usernameInput.trim().toLowerCase();
+    const cleanPass = passwordInput.trim();
+
     // 1. Check in state / Firestore users list
-    const found = users.find(
+    let userList = [...users];
+    let found = userList.find(
       (u) =>
-        u.username.trim().toLowerCase() === usernameInput.trim().toLowerCase() &&
-        u.password === passwordInput.trim()
+        (u.username || '').trim().toLowerCase() === cleanUser &&
+        (u.password || '') === cleanPass
     );
+
+    // If not found in memory, query Firestore fresh
+    if (!found && isFirebaseReady()) {
+      try {
+        const freshUsers = await fetchUsersFromFirebase();
+        if (Array.isArray(freshUsers) && freshUsers.length > 0) {
+          setUsers(freshUsers);
+          found = freshUsers.find(
+            (u) =>
+              (u.username || '').trim().toLowerCase() === cleanUser &&
+              (u.password || '') === cleanPass
+          );
+        }
+      } catch (err) {
+        console.warn('Login fresh users fetch error:', err);
+      }
+    }
 
     if (found) {
       setCurrentUser(found);
@@ -348,8 +369,8 @@ export const AppProvider = ({ children }) => {
 
     // 2. Check fallback default admin
     if (
-      usernameInput.trim().toLowerCase() === DEFAULT_ADMIN_USER.username.toLowerCase() &&
-      passwordInput.trim() === DEFAULT_ADMIN_USER.password
+      cleanUser === DEFAULT_ADMIN_USER.username.toLowerCase() &&
+      cleanPass === DEFAULT_ADMIN_USER.password
     ) {
       setCurrentUser(DEFAULT_ADMIN_USER);
       await saveState('@session_user', DEFAULT_ADMIN_USER);
@@ -602,6 +623,13 @@ export const AppProvider = ({ children }) => {
     } else {
       isLocalUpdateRef.current = false;
     }
+  };
+
+  const adjustProductStock = async (id, delta) => {
+    const existing = products.find((p) => p.id === id);
+    if (!existing) return;
+    const newStock = Math.max(0, Number(existing.stock || 0) + Number(delta));
+    await updateProduct(id, { ...existing, stock: newStock });
   };
 
   // ==============================================================
@@ -942,6 +970,7 @@ export const AppProvider = ({ children }) => {
         addProduct,
         updateProduct,
         deleteProduct,
+        adjustProductStock,
         customers,
         addCustomer,
         updateCustomer,
