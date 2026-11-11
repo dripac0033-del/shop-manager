@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
@@ -23,6 +24,7 @@ export default function SettingsScreen() {
     storeInfo,
     setStoreInfo,
     resetDemoData,
+    wipeAllData,
     products,
     sales,
     customers,
@@ -133,22 +135,67 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleResetData = () => {
+  const handleResetData = async () => {
+    const confirmMsg = isRTL
+      ? 'هل أنت متأكد من استعادة البيانات التجريبية للمتجر؟'
+      : 'Êtes-vous sûr de vouloir réinitialiser avec les données de démonstration ?';
+
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmMsg) : true;
+      if (confirmed) {
+        await resetDemoData();
+        window.alert(isRTL ? 'تمت استعادة البيانات بنجاح!' : 'Données réinitialisées avec succès !');
+      }
+      return;
+    }
+
     Alert.alert(
       t('resetDemoData'),
-      isRTL
-        ? 'هل أنت متأكد من استعادة البيانات التجريبية للمتجر؟'
-        : 'Êtes-vous sûr de vouloir réinitialiser avec les données de démonstration ?',
+      confirmMsg,
       [
         { text: t('cancel'), style: 'cancel' },
         {
           text: t('resetDemoData'),
           style: 'destructive',
-          onPress: () => {
-            resetDemoData();
+          onPress: async () => {
+            await resetDemoData();
             Alert.alert(
               t('dataManagement'),
               isRTL ? 'تمت استعادة البيانات بنجاح!' : 'Données réinitialisées avec succès !'
+            );
+          },
+        },
+      ]
+    );
+  };
+
+  const handleWipeAll = async () => {
+    const confirmMsg = isRTL
+      ? 'تحذير: هل أنت متأكد من مسح جميع المنتجات والزبائن والديون والمبيعات والمصاريف بالكامل (محلياً وفي فايربيس)؟'
+      : 'ATTENTION : Voulez-vous vraiment effacer TOUTES les données (produits, clients, dettes, ventes, dépenses) en local et sur Firebase ?';
+
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmMsg) : true;
+      if (confirmed) {
+        await wipeAllData();
+        window.alert(isRTL ? 'تم مسح جميع البيانات بنجاح!' : 'Toutes les données ont été effacées avec succès !');
+      }
+      return;
+    }
+
+    Alert.alert(
+      isRTL ? 'مسح شامل' : 'Vider Tout',
+      confirmMsg,
+      [
+        { text: t('cancel'), style: 'cancel' },
+        {
+          text: isRTL ? 'مسح نهائي' : 'Effacer Tout',
+          style: 'destructive',
+          onPress: async () => {
+            await wipeAllData();
+            Alert.alert(
+              t('dataManagement'),
+              isRTL ? 'تم مسح جميع البيانات بنجاح!' : 'Toutes les données ont été effacées avec succès !'
             );
           },
         },
@@ -360,8 +407,15 @@ export default function SettingsScreen() {
         </View>
 
         <TouchableOpacity style={styles.resetBtn} onPress={handleResetData}>
-          <Ionicons name="refresh" size={18} color={theme.colors.danger} />
-          <Text style={styles.resetBtnText}>{t('resetDemoData')}</Text>
+          <Ionicons name="refresh" size={18} color={theme.colors.secondary} />
+          <Text style={[styles.resetBtnText, { color: theme.colors.secondary }]}>{t('resetDemoData')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.resetBtn, { backgroundColor: theme.colors.dangerLight, borderColor: theme.colors.danger, marginTop: 10 }]} onPress={handleWipeAll}>
+          <Ionicons name="trash" size={18} color={theme.colors.danger} />
+          <Text style={[styles.resetBtnText, { color: theme.colors.danger }]}>
+            {isRTL ? 'تصفير ومسح جميع البيانات بالكامل' : 'Vider toutes les données (Remise à zéro)'}
+          </Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

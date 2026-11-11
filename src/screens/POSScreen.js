@@ -9,6 +9,7 @@ import {
   Modal,
   ScrollView,
   Alert,
+  Platform,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
@@ -515,6 +516,11 @@ export default function POSScreen() {
               <TouchableOpacity
                 style={styles.receiptPrintBtn}
                 onPress={() => {
+                  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.print) {
+                    window.print();
+                    setReceiptModalVisible(false);
+                    return;
+                  }
                   Alert.alert(t('printReceipt'), isRTL ? 'تم إرسال أمر الطباعة إلى الطابعة الحرارية!' : 'Impression thermique envoyée !');
                   setReceiptModalVisible(false);
                 }}

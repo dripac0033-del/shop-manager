@@ -180,6 +180,39 @@ export function subscribeToFirebaseExpenses(onUpdate, onError) {
   }
 }
 
+/**
+ * Listen in real-time to changes in 'sales' collection
+ */
+export function subscribeToFirebaseSales(onUpdate, onError) {
+  if (!dbInstance) return () => {};
+
+  try {
+    const salesCollection = collection(dbInstance, 'sales');
+    return onSnapshot(
+      salesCollection,
+      (snapshot) => {
+        const updated = [];
+        snapshot.forEach((docSnap) => {
+          updated.push({
+            ...docSnap.data(),
+            id: docSnap.id,
+          });
+        });
+        // Sort by date desc
+        updated.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+        if (onUpdate) onUpdate(updated);
+      },
+      (error) => {
+        console.warn('Firestore sales onSnapshot error:', error);
+        if (onError) onError(error);
+      }
+    );
+  } catch (err) {
+    console.warn('Error subscribing to sales:', err);
+    return () => {};
+  }
+}
+
 /* ==============================================================
  * PRODUCT AUTO-PUSH OPERATIONS (Local ➔ Cloud)
  * ============================================================== */
@@ -338,7 +371,112 @@ export async function deleteExpenseFromFirebase(expenseId) {
   try {
     const expRef = doc(dbInstance, 'expenses', expenseId);
     await deleteDoc(expRef);
+    return { success: true };
   } catch (err) {
     console.warn(`Failed to delete expense ${expenseId} from Firebase:`, err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a customer record from Firebase Firestore
+ */
+export async function deleteCustomerFromFirebase(customerId) {
+  if (!dbInstance) return;
+  try {
+    const custRef = doc(dbInstance, 'customers', customerId);
+    await deleteDoc(custRef);
+    return { success: true };
+  } catch (err) {
+    console.warn(`Failed to delete customer ${customerId} from Firebase:`, err);
+    throw err;
+  }
+}
+
+/**
+ * Fetch all sales once from Firebase Firestore
+ */
+export async function fetchSalesFromFirebase() {
+  if (!dbInstance) return [];
+  try {
+    const salesCollection = collection(dbInstance, 'sales');
+    const snapshot = await getDocs(salesCollection);
+    const cloudSales = [];
+    snapshot.forEach((docSnapshot) => {
+      cloudSales.push({
+        ...docSnapshot.data(),
+        id: docSnapshot.id,
+      });
+    });
+    cloudSales.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+    return cloudSales;
+  } catch (err) {
+    console.warn('Failed to fetch sales from Firebase:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch all customers once from Firebase Firestore
+ */
+export async function fetchCustomersFromFirebase() {
+  if (!dbInstance) return [];
+  try {
+    const custCollection = collection(dbInstance, 'customers');
+    const snapshot = await getDocs(custCollection);
+    const cloudCustomers = [];
+    snapshot.forEach((docSnapshot) => {
+      cloudCustomers.push({
+        ...docSnapshot.data(),
+        id: docSnapshot.id,
+      });
+    });
+    return cloudCustomers;
+  } catch (err) {
+    console.warn('Failed to fetch customers from Firebase:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch all expenses once from Firebase Firestore
+ */
+export async function fetchExpensesFromFirebase() {
+  if (!dbInstance) return [];
+  try {
+    const expCollection = collection(dbInstance, 'expenses');
+    const snapshot = await getDocs(expCollection);
+    const cloudExpenses = [];
+    snapshot.forEach((docSnapshot) => {
+      cloudExpenses.push({
+        ...docSnapshot.data(),
+        id: docSnapshot.id,
+      });
+    });
+    cloudExpenses.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+    return cloudExpenses;
+  } catch (err) {
+    console.warn('Failed to fetch expenses from Firebase:', err);
+    return [];
+  }
+}
+
+/**
+ * Clear an entire collection in Firebase Firestore (e.g., reset or clear all expenses)
+ */
+export async function clearFirebaseCollection(collectionName) {
+  if (!dbInstance) return;
+  try {
+    const colRef = collection(dbInstance, collectionName);
+    const snapshot = await getDocs(colRef);
+    const promises = [];
+    snapshot.forEach((docSnap) => {
+      promises.push(deleteDoc(doc(dbInstance, collectionName, docSnap.id)));
+    });
+    await Promise.all(promises);
+    return { success: true, count: promises.length };
+  } catch (err) {
+    console.warn(`Failed to clear collection ${collectionName} in Firebase:`, err);
+    throw err;
   }
 }

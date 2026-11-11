@@ -8,25 +8,59 @@ export default function DashboardScreen({ navigation }) {
   const {
     t,
     formatMoney,
-    products,
-    customers,
-    expenses,
-    sales,
+    products = [],
+    customers = [],
+    expenses = [],
+    sales = [],
     isRTL,
     storeInfo,
     openStockModal,
+    firebaseConnected,
+    syncStatus,
+    lastSyncTime,
   } = useApp();
 
   // Metrics calculation
   const today = new Date().toISOString().split('T')[0];
-  const todaySales = sales.filter((s) => s.date.startsWith(today));
-  const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0);
-  const todayProfit = todaySales.reduce((sum, s) => sum + (s.profit || 0), 0);
-  const totalCustomerDebt = customers.reduce((sum, c) => sum + (c.debt || 0), 0);
-  const lowStockCount = products.filter((p) => p.stock <= p.minStock).length;
+  const validSales = Array.isArray(sales) ? sales : [];
+  const validProducts = Array.isArray(products) ? products : [];
+  const validCustomers = Array.isArray(customers) ? customers : [];
+
+  const todaySales = validSales.filter((s) => (s.date || '').startsWith(today));
+  const todayRevenue = todaySales.reduce((sum, s) => sum + Number(s.total || 0), 0);
+  const todayProfit = todaySales.reduce((sum, s) => sum + Number(s.profit || 0), 0);
+  const totalCustomerDebt = validCustomers.reduce((sum, c) => sum + Number(c.debt || 0), 0);
+  const lowStockCount = validProducts.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Live Two-Way Sync Bar */}
+      <View style={[styles.syncStatusBanner, isRTL && styles.rowReverse]}>
+        <View style={[styles.syncStatusLeft, isRTL && styles.rowReverse]}>
+          <View
+            style={[
+              styles.syncDot,
+              syncStatus === 'sending' || syncStatus === 'receiving'
+                ? styles.syncDotBlue
+                : firebaseConnected
+                ? styles.syncDotGreen
+                : styles.syncDotGray,
+            ]}
+          />
+          <Text style={styles.syncStatusText}>
+            {syncStatus === 'sending'
+              ? (isRTL ? 'مزامنة السحابة جارية...' : 'Envoi vers Firebase...')
+              : syncStatus === 'receiving'
+              ? (isRTL ? 'استقبال البيانات من فايربيس...' : 'Synchronisation directe Firebase...')
+              : firebaseConnected
+              ? (isRTL ? 'متصل بقاعدة البيانات السحابية فايربيس' : 'Connecté & synchronisé avec Firebase')
+              : (isRTL ? 'الوضع المحلي' : 'Mode Local')}
+          </Text>
+        </View>
+        {lastSyncTime && (
+          <Text style={styles.syncTimeText}>{lastSyncTime}</Text>
+        )}
+      </View>
       {/* Header Banner */}
       <View style={[styles.headerBanner, isRTL && styles.rowReverse]}>
         <View style={styles.storeDetails}>
@@ -383,5 +417,45 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.small,
     color: theme.colors.secondary,
     fontWeight: '600',
+  },
+  syncStatusBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  syncStatusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  syncDotGreen: {
+    backgroundColor: theme.colors.success,
+  },
+  syncDotBlue: {
+    backgroundColor: theme.colors.secondary,
+  },
+  syncDotGray: {
+    backgroundColor: theme.colors.textMuted,
+  },
+  syncStatusText: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+    fontWeight: '600',
+  },
+  syncTimeText: {
+    fontSize: 10,
+    color: theme.colors.textMuted,
   },
 });

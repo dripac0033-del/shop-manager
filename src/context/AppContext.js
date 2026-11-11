@@ -14,10 +14,16 @@ import {
   subscribeToFirebaseProducts,
   subscribeToFirebaseCustomers,
   subscribeToFirebaseExpenses,
+  subscribeToFirebaseSales,
+  fetchSalesFromFirebase,
+  fetchCustomersFromFirebase,
+  fetchExpensesFromFirebase,
   saveSaleToFirebase,
   saveCustomerToFirebase,
+  deleteCustomerFromFirebase,
   saveExpenseToFirebase,
   deleteExpenseFromFirebase,
+  clearFirebaseCollection,
   DEFAULT_FIREBASE_CONFIG,
 } from '../services/firebase';
 
@@ -39,10 +45,7 @@ const INITIAL_CUSTOMERS = [
   { id: 'c3', name: 'Mourad Belkacem', phone: '0770 45 67 89', address: 'Bab El Oued', debt: 0 },
 ];
 
-const INITIAL_EXPENSES = [
-  { id: 'e1', title: 'Facture Électricité Sonelgaz', category: 'electricity', amount: 4500, date: new Date().toISOString() },
-  { id: 'e2', title: 'Achat Sacs Plastiques Emballage', category: 'maintenance', amount: 1200, date: new Date().toISOString() },
-];
+const INITIAL_EXPENSES = [];
 
 const INITIAL_STORE_INFO = {
   name: 'Superette El Baraka',
@@ -130,14 +133,17 @@ export const AppProvider = ({ children }) => {
         if (storedExpenses) {
           try {
             const parsed = JSON.parse(storedExpenses);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setExpenses(parsed);
-            } else {
-              setExpenses(INITIAL_EXPENSES);
+            if (Array.isArray(parsed)) {
+              // Strip out obsolete mock IDs e1 and e2
+              const cleaned = parsed.filter((e) => e.id !== 'e1' && e.id !== 'e2');
+              setExpenses(cleaned);
+              saveState('@store_expenses', cleaned);
             }
           } catch (e) {
-            setExpenses(INITIAL_EXPENSES);
+            setExpenses([]);
           }
+        } else {
+          setExpenses([]);
         }
 
         if (storedSales) {
@@ -162,6 +168,34 @@ export const AppProvider = ({ children }) => {
         if (initRes.success) {
           setFirebaseConnected(true);
           setSyncStatus('connected');
+
+          // Download all 4 collections from Firebase on mount / refresh
+          Promise.all([
+            fetchProductsFromFirebase().catch(() => []),
+            fetchCustomersFromFirebase().catch(() => []),
+            fetchExpensesFromFirebase().catch(() => []),
+            fetchSalesFromFirebase().catch(() => []),
+          ]).then(([fbProducts, fbCustomers, fbExpenses, fbSales]) => {
+            if (Array.isArray(fbProducts) && fbProducts.length > 0) {
+              setProducts(fbProducts);
+              productsRef.current = fbProducts;
+              saveState('@store_products', fbProducts);
+            }
+            if (Array.isArray(fbCustomers) && fbCustomers.length > 0) {
+              setCustomers(fbCustomers);
+              saveState('@store_customers', fbCustomers);
+            }
+            if (Array.isArray(fbExpenses)) {
+              const cleaned = fbExpenses.filter((e) => e.id !== 'e1' && e.id !== 'e2');
+              setExpenses(cleaned);
+              saveState('@store_expenses', cleaned);
+            }
+            if (Array.isArray(fbSales)) {
+              setSales(fbSales);
+              saveState('@store_sales', fbSales);
+            }
+            setLastSyncTime(new Date().toLocaleTimeString());
+          }).catch((err) => console.warn('Initial Firebase batch sync error:', err));
         } else {
           setSyncStatus('offline');
         }
@@ -192,6 +226,7 @@ export const AppProvider = ({ children }) => {
     let unsubProducts = () => {};
     let unsubCustomers = () => {};
     let unsubExpenses = () => {};
+    let unsubSales = () => {};
 
     try {
       // 1. Products Real-time Subscription
@@ -252,12 +287,28 @@ export const AppProvider = ({ children }) => {
         (cloudExpenses) => {
           if (isLocalUpdateRef.current) return;
 
-          if (cloudExpenses && cloudExpenses.length > 0) {
-            setExpenses(cloudExpenses);
-            saveState('@store_expenses', cloudExpenses);
+          if (cloudExpenses) {
+            const cleaned = cloudExpenses.filter((e) => e.id !== 'e1' && e.id !== 'e2');
+            setExpenses(cleaned);
+            saveState('@store_expenses', cleaned);
+            setLastSyncTime(new Date().toLocaleTimeString());
           }
         },
         (err) => console.warn('Expenses sync listener error:', err)
+      );
+
+      // 4. Sales Real-time Subscription
+      unsubSales = subscribeToFirebaseSales(
+        (cloudSales) => {
+          if (isLocalUpdateRef.current) return;
+
+          if (cloudSales) {
+            setSales(cloudSales);
+            saveState('@store_sales', cloudSales);
+            setLastSyncTime(new Date().toLocaleTimeString());
+          }
+        },
+        (err) => console.warn('Sales sync listener error:', err)
       );
     } catch (e) {
       console.warn('Real-time sync setup error:', e);
@@ -267,6 +318,7 @@ export const AppProvider = ({ children }) => {
       unsubProducts();
       unsubCustomers();
       unsubExpenses();
+      unsubSales();
     };
   }, [firebaseConnected]);
 
@@ -490,6 +542,30 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const deleteCustomer = async (id) => {
+    isLocalUpdateRef.current = true;
+    const updated = customers.filter((c) => c.id !== id);
+    setCustomers(updated);
+    saveState('@store_customers', updated);
+
+    if (isFirebaseReady()) {
+      setSyncStatus('sending');
+      try {
+        await deleteCustomerFromFirebase(id);
+        setLastSyncTime(new Date().toLocaleTimeString());
+      } catch (e) {
+        console.warn('Firebase deleteCustomer auto-send failed:', e);
+      } finally {
+        setTimeout(() => {
+          isLocalUpdateRef.current = false;
+          setSyncStatus('connected');
+        }, 500);
+      }
+    } else {
+      isLocalUpdateRef.current = false;
+    }
+  };
+
   const recordCustomerPayment = async (customerId, paidAmount, note) => {
     const amount = Number(paidAmount);
     let targetCustomer = null;
@@ -539,6 +615,31 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const updateExpense = async (id, fields) => {
+    let target = null;
+    const updated = expenses.map((e) => {
+      if (e.id === id) {
+        target = { ...e, ...fields, amount: Number(fields.amount || e.amount) };
+        return target;
+      }
+      return e;
+    });
+
+    setExpenses(updated);
+    saveState('@store_expenses', updated);
+
+    if (isFirebaseReady() && target) {
+      setSyncStatus('sending');
+      try {
+        await saveExpenseToFirebase(target);
+      } catch (e) {
+        console.warn('Firebase updateExpense auto-send failed:', e);
+      } finally {
+        setSyncStatus('connected');
+      }
+    }
+  };
+
   const deleteExpense = async (id) => {
     const updated = expenses.filter((e) => e.id !== id);
     setExpenses(updated);
@@ -550,6 +651,22 @@ export const AppProvider = ({ children }) => {
         await deleteExpenseFromFirebase(id);
       } catch (e) {
         console.warn('Firebase deleteExpense auto-send failed:', e);
+      } finally {
+        setSyncStatus('connected');
+      }
+    }
+  };
+
+  const clearAllExpenses = async () => {
+    setExpenses([]);
+    await saveState('@store_expenses', []);
+
+    if (isFirebaseReady()) {
+      setSyncStatus('sending');
+      try {
+        await clearFirebaseCollection('expenses');
+      } catch (e) {
+        console.warn('Firebase clearAllExpenses error:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -706,6 +823,43 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  // Wipe all data completely (Local + Firebase)
+  const wipeAllData = async () => {
+    isLocalUpdateRef.current = true;
+    setProducts([]);
+    productsRef.current = [];
+    setCustomers([]);
+    setExpenses([]);
+    setSales([]);
+    await AsyncStorage.clear();
+    await saveState('@store_products', []);
+    await saveState('@store_customers', []);
+    await saveState('@store_expenses', []);
+    await saveState('@store_sales', []);
+
+    if (isFirebaseReady()) {
+      try {
+        setSyncStatus('sending');
+        await Promise.all([
+          clearFirebaseCollection('products').catch(() => {}),
+          clearFirebaseCollection('customers').catch(() => {}),
+          clearFirebaseCollection('expenses').catch(() => {}),
+          clearFirebaseCollection('sales').catch(() => {}),
+        ]);
+        setLastSyncTime(new Date().toLocaleTimeString());
+      } catch (e) {
+        console.warn('Wipe all data cloud error:', e);
+      } finally {
+        setTimeout(() => {
+          isLocalUpdateRef.current = false;
+          setSyncStatus('connected');
+        }, 500);
+      }
+    } else {
+      isLocalUpdateRef.current = false;
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -723,13 +877,17 @@ export const AppProvider = ({ children }) => {
         customers,
         addCustomer,
         updateCustomer,
+        deleteCustomer,
         recordCustomerPayment,
         expenses,
         addExpense,
+        updateExpense,
         deleteExpense,
+        clearAllExpenses,
         sales,
         completeSale,
         resetDemoData,
+        wipeAllData,
         t,
         formatMoney,
         isRTL: language === 'ar',
@@ -741,6 +899,15 @@ export const AppProvider = ({ children }) => {
 
         // Automatic Two-Way Firebase Synchronization
         firebaseConfig,
+        firebaseConnected,
+        syncStatus, // 'connected' | 'sending' | 'receiving' | 'offline'
+        isSyncing: syncStatus === 'sending' || syncStatus === 'receiving',
+        lastSyncTime,
+        applyFirebaseConfig,
+        uploadStockToCloud,
+        downloadStockFromCloud,
+      }}
+    >
         firebaseConnected,
         syncStatus, // 'connected' | 'sending' | 'receiving' | 'offline'
         lastSyncTime,

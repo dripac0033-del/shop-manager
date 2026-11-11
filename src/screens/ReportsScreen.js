@@ -5,12 +5,17 @@ import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function ReportsScreen() {
-  const { t, formatMoney, sales, products, expenses, isRTL } = useApp();
+  const { t, formatMoney, sales = [], products = [], expenses = [], isRTL } = useApp();
   const [period, setPeriod] = useState('month'); // 'today' | 'week' | 'month' | 'all'
 
   // Filter sales & expenses by period
   const now = new Date();
-  const filteredSales = sales.filter((s) => {
+  const validSales = Array.isArray(sales) ? sales : [];
+  const validProducts = Array.isArray(products) ? products : [];
+  const validExpenses = Array.isArray(expenses) ? expenses : [];
+
+  const filteredSales = validSales.filter((s) => {
+    if (!s || !s.date) return false;
     const saleDate = new Date(s.date);
     if (period === 'today') {
       return saleDate.toDateString() === now.toDateString();
@@ -28,7 +33,8 @@ export default function ReportsScreen() {
     return true;
   });
 
-  const filteredExpenses = expenses.filter((e) => {
+  const filteredExpenses = validExpenses.filter((e) => {
+    if (!e || !e.date) return false;
     const expDate = new Date(e.date);
     if (period === 'today') {
       return expDate.toDateString() === now.toDateString();
@@ -47,25 +53,27 @@ export default function ReportsScreen() {
   });
 
   // Financial aggregates
-  const totalRevenue = filteredSales.reduce((sum, s) => sum + s.total, 0);
-  const grossProfit = filteredSales.reduce((sum, s) => sum + (s.profit || 0), 0);
-  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+  const totalRevenue = filteredSales.reduce((sum, s) => sum + Number(s.total || 0), 0);
+  const grossProfit = filteredSales.reduce((sum, s) => sum + Number(s.profit || 0), 0);
+  const totalExpenses = filteredExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const netProfit = grossProfit - totalExpenses;
 
   // Inventory Valuation
-  const inventoryBuyValue = products.reduce((sum, p) => sum + p.buyPrice * p.stock, 0);
-  const inventorySellValue = products.reduce((sum, p) => sum + p.sellPrice * p.stock, 0);
+  const inventoryBuyValue = validProducts.reduce((sum, p) => sum + Number(p.buyPrice || 0) * Number(p.stock || 0), 0);
+  const inventorySellValue = validProducts.reduce((sum, p) => sum + Number(p.sellPrice || 0) * Number(p.stock || 0), 0);
   const potentialInventoryMargin = inventorySellValue - inventoryBuyValue;
 
   // Top Selling Items
   const itemCounts = {};
   filteredSales.forEach((s) => {
-    s.items.forEach((item) => {
-      itemCounts[item.id] = (itemCounts[item.id] || 0) + item.quantity;
+    (s.items || []).forEach((item) => {
+      if (item && item.id) {
+        itemCounts[item.id] = (itemCounts[item.id] || 0) + Number(item.quantity || 1);
+      }
     });
   });
 
-  const topProducts = products
+  const topProducts = validProducts
     .map((p) => ({ ...p, soldQty: itemCounts[p.id] || 0 }))
     .filter((p) => p.soldQty > 0)
     .sort((a, b) => b.soldQty - a.soldQty);
