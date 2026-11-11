@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "505538712523",
+    "project_id": "hadjali49-c42f4",
+    "storage_bucket": "hadjali49-c42f4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:505538712523:android:3c4a7af1a5d3df5e4c5c4e",
+        "android_client_info": {
+          "package_name": "com.company.hadjali49"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBRRE4pYcruumTYFvzz2kwtrceSqvN0vg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
