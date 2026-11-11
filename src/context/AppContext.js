@@ -24,50 +24,54 @@ import {
   saveExpenseToFirebase,
   deleteExpenseFromFirebase,
   clearFirebaseCollection,
+  saveStoreInfoToFirebase,
+  fetchStoreInfoFromFirebase,
+  subscribeToFirebaseStoreInfo,
+  saveUserToFirebase,
+  deleteUserFromFirebase,
+  fetchUsersFromFirebase,
+  subscribeToFirebaseUsers,
   DEFAULT_FIREBASE_CONFIG,
 } from '../services/firebase';
 
 const AppContext = createContext();
 
-const INITIAL_PRODUCTS = [
-  { id: '1', barcode: '6130001001', nameFr: 'Eau Minérale Lalla Khedidja 1.5L', nameAr: 'ماء معدني لالة خديجة 1.5 لتر', category: 'Boissons', buyPrice: 32, sellPrice: 40, stock: 48, minStock: 12 },
-  { id: '2', barcode: '6130001002', nameFr: 'Lait Candia Silhouette 1L', nameAr: 'حليب كانديا 1 لتر', category: 'Produits Laitiers', buyPrice: 110, sellPrice: 130, stock: 24, minStock: 10 },
-  { id: '3', barcode: '6130001003', nameFr: 'Huile Elio 5L', nameAr: 'زيت إيليو 5 لتر', category: 'Alimentation', buyPrice: 580, sellPrice: 650, stock: 15, minStock: 5 },
-  { id: '4', barcode: '6130001004', nameFr: 'Café Moulu Bonal 250g', nameAr: 'قهوة بونال 250 غرام', category: 'Alimentation', buyPrice: 220, sellPrice: 260, stock: 30, minStock: 8 },
-  { id: '5', barcode: '6130001005', nameFr: 'Fromage Tartino 16 Portions', nameAr: 'جبن تارتينو 16 قطعة', category: 'Produits Laitiers', buyPrice: 180, sellPrice: 220, stock: 18, minStock: 6 },
-  { id: '6', barcode: '6130001006', nameFr: 'Biscuits Bimo Gaufritos', nameAr: 'بسكويت بيمو غوفريط', category: 'Snacks & Biscuits', buyPrice: 45, sellPrice: 60, stock: 50, minStock: 15 },
-  { id: '7', barcode: '6130001007', nameFr: 'Savon Liquide Test 500ml', nameAr: 'صابون سائل تيست 500 مل', category: 'Entretien & Hygiène', buyPrice: 160, sellPrice: 210, stock: 4, minStock: 6 },
-];
+// Default admin user credentials requested by the user
+export const DEFAULT_ADMIN_USER = {
+  id: 'u_admin_hadjali',
+  username: 'hadjali49',
+  password: 'arezki12@@',
+  name: 'Hadj Ali',
+  role: 'admin', // 'admin' | 'cashier'
+};
 
-const INITIAL_CUSTOMERS = [
-  { id: 'c1', name: 'Karim Benali', phone: '0555 12 34 56', address: 'Quartier 1er Mai', debt: 3400 },
-  { id: 'c2', name: 'Ahmed Mansouri', phone: '0661 78 90 12', address: 'Rue Didouche Mourad', debt: 1200 },
-  { id: 'c3', name: 'Mourad Belkacem', phone: '0770 45 67 89', address: 'Bab El Oued', debt: 0 },
-];
-
-const INITIAL_EXPENSES = [];
-
-const INITIAL_STORE_INFO = {
-  name: 'Superette El Baraka',
-  phone: '0550 99 88 77',
-  address: 'Rue Principale, Alger',
-  footer: 'Merci de votre visite et à bientôt !'
+const DEFAULT_STORE_INFO = {
+  name: 'Store Soft',
+  phone: '',
+  address: '',
+  footer: 'Merci pour votre visite !',
 };
 
 export const AppProvider = ({ children }) => {
   const [language, setLanguage] = useState('fr');
   const [currency, setCurrency] = useState('DA');
-  const [storeInfo, setStoreInfo] = useState(INITIAL_STORE_INFO);
-  const [products, setProducts] = useState(INITIAL_PRODUCTS);
-  const [customers, setCustomers] = useState(INITIAL_CUSTOMERS);
-  const [expenses, setExpenses] = useState(INITIAL_EXPENSES);
+  const [storeInfo, setStoreInfo] = useState(DEFAULT_STORE_INFO);
+
+  // Core Data - 100% from Firebase Firestore (Starts empty, no local mock data)
+  const [products, setProducts] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [sales, setSales] = useState([]);
   const [isReady, setIsReady] = useState(false);
 
-  // Stock Notification State
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([DEFAULT_ADMIN_USER]);
+
+  // Stock Notification Modal State
   const [stockModalVisible, setStockModalVisible] = useState(false);
 
-  // Firebase Automatic Two-Way Synchronization State
+  // Firebase Synchronization State
   const [firebaseConfig, setFirebaseConfigState] = useState(DEFAULT_FIREBASE_CONFIG);
   const [firebaseConnected, setFirebaseConnected] = useState(false);
   const [syncStatus, setSyncStatus] = useState('connected'); // 'connected' | 'sending' | 'receiving' | 'offline'
@@ -80,135 +84,7 @@ export const AppProvider = ({ children }) => {
     productsRef.current = products;
   }, [products]);
 
-  // Load from AsyncStorage on mount and init Firebase
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const storedLang = await AsyncStorage.getItem('@store_lang');
-        const storedCurrency = await AsyncStorage.getItem('@store_currency');
-        const storedProducts = await AsyncStorage.getItem('@store_products');
-        const storedCustomers = await AsyncStorage.getItem('@store_customers');
-        const storedExpenses = await AsyncStorage.getItem('@store_expenses');
-        const storedSales = await AsyncStorage.getItem('@store_sales');
-        const storedInfo = await AsyncStorage.getItem('@store_info');
-
-        if (storedLang) setLanguage(storedLang);
-        if (storedCurrency) setCurrency(storedCurrency);
-
-        if (storedProducts) {
-          try {
-            const parsed = JSON.parse(storedProducts);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setProducts(parsed);
-              productsRef.current = parsed;
-            } else {
-              setProducts(INITIAL_PRODUCTS);
-              productsRef.current = INITIAL_PRODUCTS;
-              saveState('@store_products', INITIAL_PRODUCTS);
-            }
-          } catch (e) {
-            setProducts(INITIAL_PRODUCTS);
-            productsRef.current = INITIAL_PRODUCTS;
-            saveState('@store_products', INITIAL_PRODUCTS);
-          }
-        } else {
-          setProducts(INITIAL_PRODUCTS);
-          productsRef.current = INITIAL_PRODUCTS;
-          saveState('@store_products', INITIAL_PRODUCTS);
-        }
-
-        if (storedCustomers) {
-          try {
-            const parsed = JSON.parse(storedCustomers);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setCustomers(parsed);
-            } else {
-              setCustomers(INITIAL_CUSTOMERS);
-            }
-          } catch (e) {
-            setCustomers(INITIAL_CUSTOMERS);
-          }
-        }
-
-        if (storedExpenses) {
-          try {
-            const parsed = JSON.parse(storedExpenses);
-            if (Array.isArray(parsed)) {
-              // Strip out obsolete mock IDs e1 and e2
-              const cleaned = parsed.filter((e) => e.id !== 'e1' && e.id !== 'e2');
-              setExpenses(cleaned);
-              saveState('@store_expenses', cleaned);
-            }
-          } catch (e) {
-            setExpenses([]);
-          }
-        } else {
-          setExpenses([]);
-        }
-
-        if (storedSales) {
-          try {
-            const parsed = JSON.parse(storedSales);
-            if (Array.isArray(parsed)) setSales(parsed);
-          } catch (e) {}
-        }
-
-        if (storedInfo) {
-          try {
-            const parsed = JSON.parse(storedInfo);
-            if (parsed && typeof parsed === 'object') setStoreInfo(parsed);
-          } catch (e) {}
-        }
-
-        // Load & Initialize Firebase
-        const storedFbConf = await getStoredFirebaseConfig();
-        const activeConfig = (storedFbConf && storedFbConf.apiKey) ? storedFbConf : DEFAULT_FIREBASE_CONFIG;
-        setFirebaseConfigState(activeConfig);
-        const initRes = initFirebase(activeConfig);
-        if (initRes.success) {
-          setFirebaseConnected(true);
-          setSyncStatus('connected');
-
-          // Download all 4 collections from Firebase on mount / refresh
-          Promise.all([
-            fetchProductsFromFirebase().catch(() => []),
-            fetchCustomersFromFirebase().catch(() => []),
-            fetchExpensesFromFirebase().catch(() => []),
-            fetchSalesFromFirebase().catch(() => []),
-          ]).then(([fbProducts, fbCustomers, fbExpenses, fbSales]) => {
-            if (Array.isArray(fbProducts) && fbProducts.length > 0) {
-              setProducts(fbProducts);
-              productsRef.current = fbProducts;
-              saveState('@store_products', fbProducts);
-            }
-            if (Array.isArray(fbCustomers) && fbCustomers.length > 0) {
-              setCustomers(fbCustomers);
-              saveState('@store_customers', fbCustomers);
-            }
-            if (Array.isArray(fbExpenses)) {
-              const cleaned = fbExpenses.filter((e) => e.id !== 'e1' && e.id !== 'e2');
-              setExpenses(cleaned);
-              saveState('@store_expenses', cleaned);
-            }
-            if (Array.isArray(fbSales)) {
-              setSales(fbSales);
-              saveState('@store_sales', fbSales);
-            }
-            setLastSyncTime(new Date().toLocaleTimeString());
-          }).catch((err) => console.warn('Initial Firebase batch sync error:', err));
-        } else {
-          setSyncStatus('offline');
-        }
-      } catch (err) {
-        console.warn('Error loading persisted data:', err);
-      } finally {
-        setIsReady(true);
-      }
-    };
-    loadData();
-  }, []);
-
-  // Save changes to local storage
+  // Save changes to AsyncStorage helper
   const saveState = async (key, val) => {
     try {
       await AsyncStorage.setItem(key, typeof val === 'string' ? val : JSON.stringify(val));
@@ -218,7 +94,146 @@ export const AppProvider = ({ children }) => {
   };
 
   // ==============================================================
-  // AUTOMATIC REAL-TIME TWO-WAY LISTENER (Cloud ➔ Local)
+  // INITIAL DATA LOAD & FIREBASE HYDRATION
+  // ==============================================================
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const storedLang = await AsyncStorage.getItem('@store_lang');
+        const storedCurrency = await AsyncStorage.getItem('@store_currency');
+        const storedUser = await AsyncStorage.getItem('@session_user');
+        const storedProducts = await AsyncStorage.getItem('@store_products');
+        const storedCustomers = await AsyncStorage.getItem('@store_customers');
+        const storedExpenses = await AsyncStorage.getItem('@store_expenses');
+        const storedSales = await AsyncStorage.getItem('@store_sales');
+        const storedInfo = await AsyncStorage.getItem('@store_info');
+
+        if (storedLang) setLanguage(storedLang);
+        if (storedCurrency) setCurrency(storedCurrency);
+        if (storedUser) {
+          try {
+            setCurrentUser(JSON.parse(storedUser));
+          } catch (e) {}
+        }
+        if (storedProducts) {
+          try {
+            const p = JSON.parse(storedProducts);
+            if (Array.isArray(p)) setProducts(p);
+          } catch (e) {}
+        }
+        if (storedCustomers) {
+          try {
+            const c = JSON.parse(storedCustomers);
+            if (Array.isArray(c)) setCustomers(c);
+          } catch (e) {}
+        }
+        if (storedExpenses) {
+          try {
+            const exp = JSON.parse(storedExpenses);
+            if (Array.isArray(exp)) setExpenses(exp);
+          } catch (e) {}
+        }
+        if (storedSales) {
+          try {
+            const s = JSON.parse(storedSales);
+            if (Array.isArray(s)) setSales(s);
+          } catch (e) {}
+        }
+        if (storedInfo) {
+          try {
+            const inf = JSON.parse(storedInfo);
+            if (inf && typeof inf === 'object') setStoreInfo(inf);
+          } catch (e) {}
+        }
+
+        // Initialize Firebase
+        const storedFbConf = await getStoredFirebaseConfig();
+        const activeConfig = storedFbConf && storedFbConf.apiKey ? storedFbConf : DEFAULT_FIREBASE_CONFIG;
+        setFirebaseConfigState(activeConfig);
+        const initRes = initFirebase(activeConfig);
+
+        if (initRes.success) {
+          setFirebaseConnected(true);
+          setSyncStatus('connected');
+
+          // Download all 6 collections directly from Firebase Firestore
+          await refreshAllFromFirebase();
+        } else {
+          setSyncStatus('offline');
+        }
+      } catch (err) {
+        console.warn('Error loading initial data:', err);
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // ==============================================================
+  // PULL ALL FRESH DATA FROM FIREBASE
+  // ==============================================================
+  const refreshAllFromFirebase = async () => {
+    if (!isFirebaseReady()) return;
+    setSyncStatus('receiving');
+    try {
+      const [fbProducts, fbCustomers, fbExpenses, fbSales, fbInfo, fbUsers] = await Promise.all([
+        fetchProductsFromFirebase().catch(() => []),
+        fetchCustomersFromFirebase().catch(() => []),
+        fetchExpensesFromFirebase().catch(() => []),
+        fetchSalesFromFirebase().catch(() => []),
+        fetchStoreInfoFromFirebase().catch(() => null),
+        fetchUsersFromFirebase().catch(() => []),
+      ]);
+
+      if (Array.isArray(fbProducts)) {
+        setProducts(fbProducts);
+        productsRef.current = fbProducts;
+        saveState('@store_products', fbProducts);
+      }
+
+      if (Array.isArray(fbCustomers)) {
+        setCustomers(fbCustomers);
+        saveState('@store_customers', fbCustomers);
+      }
+
+      if (Array.isArray(fbExpenses)) {
+        // Exclude obsolete mock IDs e1 and e2
+        const cleaned = fbExpenses.filter((e) => e.id !== 'e1' && e.id !== 'e2');
+        setExpenses(cleaned);
+        saveState('@store_expenses', cleaned);
+      }
+
+      if (Array.isArray(fbSales)) {
+        setSales(fbSales);
+        saveState('@store_sales', fbSales);
+      }
+
+      if (fbInfo && typeof fbInfo === 'object') {
+        setStoreInfo(fbInfo);
+        saveState('@store_info', fbInfo);
+      }
+
+      // Handle users
+      if (Array.isArray(fbUsers) && fbUsers.length > 0) {
+        setUsers(fbUsers);
+      } else {
+        // Initialize default admin user in Firestore if collection is empty
+        await saveUserToFirebase(DEFAULT_ADMIN_USER).catch(console.warn);
+        setUsers([DEFAULT_ADMIN_USER]);
+      }
+
+      setLastSyncTime(new Date().toLocaleTimeString());
+      setTimeout(() => setSyncStatus('connected'), 500);
+    } catch (err) {
+      console.warn('Refresh all data error:', err);
+      setSyncStatus('connected');
+    }
+  };
+
+  // ==============================================================
+  // AUTOMATIC REAL-TIME TWO-WAY LISTENERS (Cloud ➔ Local)
   // ==============================================================
   useEffect(() => {
     if (!firebaseConnected || !isFirebaseReady()) return;
@@ -227,89 +242,79 @@ export const AppProvider = ({ children }) => {
     let unsubCustomers = () => {};
     let unsubExpenses = () => {};
     let unsubSales = () => {};
+    let unsubStoreInfo = () => {};
+    let unsubUsers = () => {};
 
     try {
-      // 1. Products Real-time Subscription
+      // 1. Products Subscription
       unsubProducts = subscribeToFirebaseProducts(
-        async (cloudProducts) => {
+        (cloudProducts) => {
           if (isLocalUpdateRef.current) return;
-
-          setSyncStatus('receiving');
-          if (Array.isArray(cloudProducts) && cloudProducts.length > 0) {
-            // Received real-time updates from Firebase
+          if (Array.isArray(cloudProducts)) {
             setProducts(cloudProducts);
             productsRef.current = cloudProducts;
             saveState('@store_products', cloudProducts);
             setLastSyncTime(new Date().toLocaleTimeString());
-            setTimeout(() => setSyncStatus('connected'), 600);
-          } else {
-            // Cloud collection is empty on Firebase!
-            // Do NOT overwrite local products with an empty list.
-            // Automatically push our local catalog to Firestore to initialize the cloud database!
-            const seed = (productsRef.current && productsRef.current.length > 0)
-              ? productsRef.current
-              : INITIAL_PRODUCTS;
-            
-            setProducts(seed);
-            productsRef.current = seed;
-            saveState('@store_products', seed);
-
-            setSyncStatus('sending');
-            try {
-              await uploadAllProductsToFirebase(seed);
-              setLastSyncTime(new Date().toLocaleTimeString());
-            } catch (err) {
-              console.warn('Auto-seed cloud error:', err);
-            } finally {
-              setTimeout(() => setSyncStatus('connected'), 600);
-            }
           }
         },
-        (err) => console.warn('Products sync listener error:', err)
+        (err) => console.warn('Products sync error:', err)
       );
 
-      // 2. Customers Real-time Subscription
+      // 2. Customers Subscription
       unsubCustomers = subscribeToFirebaseCustomers(
         (cloudCustomers) => {
           if (isLocalUpdateRef.current) return;
-
-          if (cloudCustomers && cloudCustomers.length > 0) {
+          if (Array.isArray(cloudCustomers)) {
             setCustomers(cloudCustomers);
             saveState('@store_customers', cloudCustomers);
             setLastSyncTime(new Date().toLocaleTimeString());
           }
         },
-        (err) => console.warn('Customers sync listener error:', err)
+        (err) => console.warn('Customers sync error:', err)
       );
 
-      // 3. Expenses Real-time Subscription
+      // 3. Expenses Subscription
       unsubExpenses = subscribeToFirebaseExpenses(
         (cloudExpenses) => {
           if (isLocalUpdateRef.current) return;
-
-          if (cloudExpenses) {
+          if (Array.isArray(cloudExpenses)) {
             const cleaned = cloudExpenses.filter((e) => e.id !== 'e1' && e.id !== 'e2');
             setExpenses(cleaned);
             saveState('@store_expenses', cleaned);
             setLastSyncTime(new Date().toLocaleTimeString());
           }
         },
-        (err) => console.warn('Expenses sync listener error:', err)
+        (err) => console.warn('Expenses sync error:', err)
       );
 
-      // 4. Sales Real-time Subscription
+      // 4. Sales Subscription
       unsubSales = subscribeToFirebaseSales(
         (cloudSales) => {
           if (isLocalUpdateRef.current) return;
-
-          if (cloudSales) {
+          if (Array.isArray(cloudSales)) {
             setSales(cloudSales);
             saveState('@store_sales', cloudSales);
             setLastSyncTime(new Date().toLocaleTimeString());
           }
         },
-        (err) => console.warn('Sales sync listener error:', err)
+        (err) => console.warn('Sales sync error:', err)
       );
+
+      // 5. Store Info Subscription
+      unsubStoreInfo = subscribeToFirebaseStoreInfo((cloudInfo) => {
+        if (isLocalUpdateRef.current) return;
+        if (cloudInfo) {
+          setStoreInfo(cloudInfo);
+          saveState('@store_info', cloudInfo);
+        }
+      });
+
+      // 6. Users Subscription
+      unsubUsers = subscribeToFirebaseUsers((cloudUsers) => {
+        if (Array.isArray(cloudUsers) && cloudUsers.length > 0) {
+          setUsers(cloudUsers);
+        }
+      });
     } catch (e) {
       console.warn('Real-time sync setup error:', e);
     }
@@ -319,9 +324,93 @@ export const AppProvider = ({ children }) => {
       unsubCustomers();
       unsubExpenses();
       unsubSales();
+      unsubStoreInfo();
+      unsubUsers();
     };
   }, [firebaseConnected]);
 
+  // ==============================================================
+  // AUTHENTICATION & USER MANAGEMENT
+  // ==============================================================
+  const login = async (usernameInput, passwordInput) => {
+    // 1. Check in state / Firestore users list
+    const found = users.find(
+      (u) =>
+        u.username.trim().toLowerCase() === usernameInput.trim().toLowerCase() &&
+        u.password === passwordInput.trim()
+    );
+
+    if (found) {
+      setCurrentUser(found);
+      await saveState('@session_user', found);
+      return { success: true, user: found };
+    }
+
+    // 2. Check fallback default admin
+    if (
+      usernameInput.trim().toLowerCase() === DEFAULT_ADMIN_USER.username.toLowerCase() &&
+      passwordInput.trim() === DEFAULT_ADMIN_USER.password
+    ) {
+      setCurrentUser(DEFAULT_ADMIN_USER);
+      await saveState('@session_user', DEFAULT_ADMIN_USER);
+      return { success: true, user: DEFAULT_ADMIN_USER };
+    }
+
+    return {
+      success: false,
+      error:
+        language === 'ar'
+          ? 'اسم المستخدم أو كلمة المرور غير صحيحة!'
+          : 'Identifiant ou mot de passe incorrect !',
+    };
+  };
+
+  const logout = async () => {
+    setCurrentUser(null);
+    await AsyncStorage.removeItem('@session_user');
+  };
+
+  const addUser = async (userData) => {
+    const newUser = {
+      ...userData,
+      id: 'u_' + Date.now().toString(),
+      role: userData.role || 'cashier',
+    };
+
+    const updated = [...users, newUser];
+    setUsers(updated);
+
+    if (isFirebaseReady()) {
+      setSyncStatus('sending');
+      try {
+        await saveUserToFirebase(newUser);
+      } catch (e) {
+        console.warn('Add user to Firebase error:', e);
+      } finally {
+        setSyncStatus('connected');
+      }
+    }
+  };
+
+  const deleteUser = async (userId) => {
+    const updated = users.filter((u) => u.id !== userId);
+    setUsers(updated);
+
+    if (isFirebaseReady()) {
+      setSyncStatus('sending');
+      try {
+        await deleteUserFromFirebase(userId);
+      } catch (e) {
+        console.warn('Delete user from Firebase error:', e);
+      } finally {
+        setSyncStatus('connected');
+      }
+    }
+  };
+
+  // ==============================================================
+  // GENERAL SETTINGS & STORE INFO
+  // ==============================================================
   const updateLanguage = (lang) => {
     setLanguage(lang);
     saveState('@store_lang', lang);
@@ -332,9 +421,27 @@ export const AppProvider = ({ children }) => {
     saveState('@store_currency', curr);
   };
 
-  const updateStoreInfo = (info) => {
+  const updateStoreInfo = async (info) => {
+    isLocalUpdateRef.current = true;
     setStoreInfo(info);
     saveState('@store_info', info);
+
+    if (isFirebaseReady()) {
+      setSyncStatus('sending');
+      try {
+        await saveStoreInfoToFirebase(info);
+        setLastSyncTime(new Date().toLocaleTimeString());
+      } catch (e) {
+        console.warn('Save store info error:', e);
+      } finally {
+        setTimeout(() => {
+          isLocalUpdateRef.current = false;
+          setSyncStatus('connected');
+        }, 500);
+      }
+    } else {
+      isLocalUpdateRef.current = false;
+    }
   };
 
   const t = (key) => {
@@ -346,13 +453,16 @@ export const AppProvider = ({ children }) => {
     return language === 'ar' ? `${num} ${currency === 'DA' ? 'د.ج' : currency}` : `${num} ${currency}`;
   };
 
-  // Firebase manual actions
+  // ==============================================================
+  // FIREBASE CONFIGURATION ACTIONS
+  // ==============================================================
   const applyFirebaseConfig = async (newConfig) => {
     setFirebaseConfigState(newConfig);
     const res = await saveFirebaseConfig(newConfig);
     if (res.success) {
       setFirebaseConnected(true);
       setSyncStatus('connected');
+      await refreshAllFromFirebase();
       return { success: true };
     } else {
       setFirebaseConnected(false);
@@ -378,7 +488,7 @@ export const AppProvider = ({ children }) => {
     setSyncStatus('receiving');
     try {
       const cloudProducts = await fetchProductsFromFirebase();
-      if (cloudProducts && cloudProducts.length > 0) {
+      if (cloudProducts) {
         setProducts(cloudProducts);
         saveState('@store_products', cloudProducts);
         setLastSyncTime(new Date().toLocaleTimeString());
@@ -404,6 +514,7 @@ export const AppProvider = ({ children }) => {
       minStock: Number(prod.minStock || 5),
       buyPrice: Number(prod.buyPrice || 0),
       sellPrice: Number(prod.sellPrice || 0),
+      createdBy: currentUser?.username || 'admin',
     };
 
     isLocalUpdateRef.current = true;
@@ -411,14 +522,13 @@ export const AppProvider = ({ children }) => {
     setProducts(updated);
     saveState('@store_products', updated);
 
-    // Auto-send to Firebase Firestore
     if (isFirebaseReady()) {
       setSyncStatus('sending');
       try {
         await saveProductToFirebase(newProd);
         setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase addProduct auto-send failed:', e);
+        console.warn('Firebase addProduct failed:', e);
       } finally {
         setTimeout(() => {
           isLocalUpdateRef.current = false;
@@ -452,14 +562,13 @@ export const AppProvider = ({ children }) => {
     setProducts(updated);
     saveState('@store_products', updated);
 
-    // Auto-send to Firebase Firestore
     if (isFirebaseReady() && target) {
       setSyncStatus('sending');
       try {
         await saveProductToFirebase(target);
         setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase updateProduct auto-send failed:', e);
+        console.warn('Firebase updateProduct failed:', e);
       } finally {
         setTimeout(() => {
           isLocalUpdateRef.current = false;
@@ -477,14 +586,13 @@ export const AppProvider = ({ children }) => {
     setProducts(updated);
     saveState('@store_products', updated);
 
-    // Auto-delete from Firebase Firestore
     if (isFirebaseReady()) {
       setSyncStatus('sending');
       try {
         await deleteProductFromFirebase(id);
         setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase deleteProduct auto-send failed:', e);
+        console.warn('Firebase deleteProduct failed:', e);
       } finally {
         setTimeout(() => {
           isLocalUpdateRef.current = false;
@@ -500,7 +608,12 @@ export const AppProvider = ({ children }) => {
   // CUSTOMER CRUD (Local ➔ Cloud Auto-Push)
   // ==============================================================
   const addCustomer = async (cust) => {
-    const newCust = { ...cust, id: 'c_' + Date.now().toString(), debt: Number(cust.debt || 0) };
+    const newCust = {
+      ...cust,
+      id: 'c_' + Date.now().toString(),
+      debt: Number(cust.debt || 0),
+      createdBy: currentUser?.username || 'admin',
+    };
     const updated = [newCust, ...customers];
     setCustomers(updated);
     saveState('@store_customers', updated);
@@ -509,8 +622,9 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await saveCustomerToFirebase(newCust);
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase addCustomer auto-send failed:', e);
+        console.warn('Firebase addCustomer failed:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -534,8 +648,9 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await saveCustomerToFirebase(target);
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase updateCustomer auto-send failed:', e);
+        console.warn('Firebase updateCustomer failed:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -554,7 +669,7 @@ export const AppProvider = ({ children }) => {
         await deleteCustomerFromFirebase(id);
         setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase deleteCustomer auto-send failed:', e);
+        console.warn('Firebase deleteCustomer failed:', e);
       } finally {
         setTimeout(() => {
           isLocalUpdateRef.current = false;
@@ -586,8 +701,9 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await saveCustomerToFirebase(targetCustomer);
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase recordCustomerPayment auto-send failed:', e);
+        console.warn('Firebase recordCustomerPayment failed:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -598,7 +714,13 @@ export const AppProvider = ({ children }) => {
   // EXPENSES CRUD (Local ➔ Cloud Auto-Push)
   // ==============================================================
   const addExpense = async (exp) => {
-    const newExp = { ...exp, id: 'e_' + Date.now().toString(), date: new Date().toISOString() };
+    const newExp = {
+      ...exp,
+      id: 'e_' + Date.now().toString(),
+      date: new Date().toISOString(),
+      createdBy: currentUser?.username || 'admin',
+      createdByName: currentUser?.name || 'Hadj Ali',
+    };
     const updated = [newExp, ...expenses];
     setExpenses(updated);
     saveState('@store_expenses', updated);
@@ -607,8 +729,9 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await saveExpenseToFirebase(newExp);
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase addExpense auto-send failed:', e);
+        console.warn('Firebase addExpense failed:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -632,8 +755,9 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await saveExpenseToFirebase(target);
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase updateExpense auto-send failed:', e);
+        console.warn('Firebase updateExpense failed:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -649,8 +773,9 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await deleteExpenseFromFirebase(id);
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase deleteExpense auto-send failed:', e);
+        console.warn('Firebase deleteExpense failed:', e);
       } finally {
         setSyncStatus('connected');
       }
@@ -665,6 +790,7 @@ export const AppProvider = ({ children }) => {
       setSyncStatus('sending');
       try {
         await clearFirebaseCollection('expenses');
+        setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
         console.warn('Firebase clearAllExpenses error:', e);
       } finally {
@@ -694,12 +820,10 @@ export const AppProvider = ({ children }) => {
           stock: newStock,
         };
 
-        // Check if stock just reached or fell below minimum limit
         if (newStock <= updatedProducts[pIndex].minStock) {
           newlyTriggeredLowStockProducts.push(updatedProducts[pIndex]);
         }
 
-        // Auto-update single product stock in Firebase Firestore
         if (isFirebaseReady()) {
           updateProductStockInFirebase(item.id, newStock);
         }
@@ -722,7 +846,6 @@ export const AppProvider = ({ children }) => {
       setCustomers(updatedCustomers);
       saveState('@store_customers', updatedCustomers);
 
-      // Auto-sync updated customer debt to Firebase
       if (isFirebaseReady() && debtorCustomer) {
         saveCustomerToFirebase(debtorCustomer);
       }
@@ -737,19 +860,23 @@ export const AppProvider = ({ children }) => {
       id: saleId,
       date,
       profit: netProfit,
+      costOfGoods,
+      cashier: currentUser?.username || 'hadjali49',
+      cashierName: currentUser?.name || 'Hadj Ali',
+      userId: currentUser?.id || 'u_admin_hadjali',
     };
+
     const updatedSales = [newSale, ...sales];
     setSales(updatedSales);
     saveState('@store_sales', updatedSales);
 
-    // Auto-save sale record to Firebase Firestore
     if (isFirebaseReady()) {
       setSyncStatus('sending');
       try {
         await saveSaleToFirebase(newSale);
         setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Firebase saveSale auto-send failed:', e);
+        console.warn('Firebase saveSale failed:', e);
       } finally {
         setTimeout(() => {
           isLocalUpdateRef.current = false;
@@ -766,63 +893,6 @@ export const AppProvider = ({ children }) => {
     };
   };
 
-  // Restore default sample catalog
-  const restoreDefaultProducts = async () => {
-    isLocalUpdateRef.current = true;
-    setProducts(INITIAL_PRODUCTS);
-    productsRef.current = INITIAL_PRODUCTS;
-    await saveState('@store_products', INITIAL_PRODUCTS);
-    if (isFirebaseReady()) {
-      try {
-        setSyncStatus('sending');
-        await uploadAllProductsToFirebase(INITIAL_PRODUCTS);
-        setLastSyncTime(new Date().toLocaleTimeString());
-      } catch (e) {
-        console.warn('Restore products cloud sync error:', e);
-      } finally {
-        setTimeout(() => {
-          isLocalUpdateRef.current = false;
-          setSyncStatus('connected');
-        }, 500);
-      }
-    } else {
-      isLocalUpdateRef.current = false;
-    }
-  };
-
-  // Reset demo
-  const resetDemoData = async () => {
-    isLocalUpdateRef.current = true;
-    setProducts(INITIAL_PRODUCTS);
-    productsRef.current = INITIAL_PRODUCTS;
-    setCustomers(INITIAL_CUSTOMERS);
-    setExpenses(INITIAL_EXPENSES);
-    setSales([]);
-    setStoreInfo(INITIAL_STORE_INFO);
-    await AsyncStorage.clear();
-    await saveState('@store_products', INITIAL_PRODUCTS);
-    await saveState('@store_customers', INITIAL_CUSTOMERS);
-    await saveState('@store_expenses', INITIAL_EXPENSES);
-    await saveState('@store_info', INITIAL_STORE_INFO);
-
-    if (isFirebaseReady()) {
-      try {
-        setSyncStatus('sending');
-        await uploadAllProductsToFirebase(INITIAL_PRODUCTS);
-        setLastSyncTime(new Date().toLocaleTimeString());
-      } catch (e) {
-        console.warn('Reset demo cloud upload error:', e);
-      } finally {
-        setTimeout(() => {
-          isLocalUpdateRef.current = false;
-          setSyncStatus('connected');
-        }, 500);
-      }
-    } else {
-      isLocalUpdateRef.current = false;
-    }
-  };
-
   // Wipe all data completely (Local + Firebase)
   const wipeAllData = async () => {
     isLocalUpdateRef.current = true;
@@ -831,11 +901,10 @@ export const AppProvider = ({ children }) => {
     setCustomers([]);
     setExpenses([]);
     setSales([]);
-    await AsyncStorage.clear();
-    await saveState('@store_products', []);
-    await saveState('@store_customers', []);
-    await saveState('@store_expenses', []);
-    await saveState('@store_sales', []);
+    await AsyncStorage.removeItem('@store_products');
+    await AsyncStorage.removeItem('@store_customers');
+    await AsyncStorage.removeItem('@store_expenses');
+    await AsyncStorage.removeItem('@store_sales');
 
     if (isFirebaseReady()) {
       try {
@@ -848,7 +917,7 @@ export const AppProvider = ({ children }) => {
         ]);
         setLastSyncTime(new Date().toLocaleTimeString());
       } catch (e) {
-        console.warn('Wipe all data cloud error:', e);
+        console.warn('Wipe all data error:', e);
       } finally {
         setTimeout(() => {
           isLocalUpdateRef.current = false;
@@ -873,7 +942,6 @@ export const AppProvider = ({ children }) => {
         addProduct,
         updateProduct,
         deleteProduct,
-        restoreDefaultProducts,
         customers,
         addCustomer,
         updateCustomer,
@@ -886,11 +954,19 @@ export const AppProvider = ({ children }) => {
         clearAllExpenses,
         sales,
         completeSale,
-        resetDemoData,
         wipeAllData,
+        refreshAllFromFirebase,
         t,
         formatMoney,
         isRTL: language === 'ar',
+
+        // Authentication & Users
+        currentUser,
+        users,
+        login,
+        logout,
+        addUser,
+        deleteUser,
 
         // Stock Notification & Modal
         stockModalVisible,
@@ -902,14 +978,6 @@ export const AppProvider = ({ children }) => {
         firebaseConnected,
         syncStatus, // 'connected' | 'sending' | 'receiving' | 'offline'
         isSyncing: syncStatus === 'sending' || syncStatus === 'receiving',
-        lastSyncTime,
-        applyFirebaseConfig,
-        uploadStockToCloud,
-        downloadStockFromCloud,
-      }}
-    >
-        firebaseConnected,
-        syncStatus, // 'connected' | 'sending' | 'receiving' | 'offline'
         lastSyncTime,
         applyFirebaseConfig,
         uploadStockToCloud,

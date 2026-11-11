@@ -23,13 +23,12 @@ export default function ProductsScreen() {
     addProduct,
     updateProduct,
     deleteProduct,
-    restoreDefaultProducts,
     isRTL,
     firebaseConnected,
     uploadStockToCloud,
     syncStatus,
     lastSyncTime,
-    resetDemoData,
+    refreshAllFromFirebase,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -241,12 +240,12 @@ export default function ProductsScreen() {
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={54} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>
-            {isRTL ? 'لا توجد منتجات مسجلة' : 'Aucun produit dans le catalogue'}
+            {isRTL ? 'لا توجد منتجات مسجلة في فايربيس' : 'Aucun produit dans votre base Firebase'}
           </Text>
           <Text style={styles.emptySub}>
             {isRTL
-              ? 'اضغط على زر الإضافة (+) لإنشاء منتج جديد أو استعد السلع الافتراضية.'
-              : 'Cliquez sur (+) pour ajouter un produit ou restaurez les produits par défaut.'}
+              ? 'اضغط على زر الإضافة (+) لإنشاء منتج جديد وحفظه في السحابة.'
+              : 'Cliquez sur Ajouter Produit pour enregistrer vos articles dans Firebase.'}
           </Text>
 
           <View style={styles.emptyActionsRow}>
@@ -255,10 +254,10 @@ export default function ProductsScreen() {
               <Text style={styles.emptyAddBtnText}>{t('addProduct')}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.emptyRestoreBtn} onPress={restoreDefaultProducts}>
+            <TouchableOpacity style={styles.emptyRestoreBtn} onPress={refreshAllFromFirebase}>
               <Ionicons name="refresh" size={18} color={theme.colors.secondary} />
               <Text style={styles.emptyRestoreBtnText}>
-                {isRTL ? 'استعادة السلع الافتراضية' : 'Restaurer Produits Démo'}
+                {isRTL ? 'تحديث من السحابة' : 'Actualiser Firebase'}
               </Text>
             </TouchableOpacity>
           </View>

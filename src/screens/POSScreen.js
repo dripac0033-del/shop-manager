@@ -246,6 +246,19 @@ export default function POSScreen() {
             </TouchableOpacity>
           );
         }}
+        ListEmptyComponent={
+          <View style={styles.emptyProductsBox}>
+            <Ionicons name="cart-outline" size={48} color={theme.colors.textMuted} />
+            <Text style={styles.emptyProductsTitle}>
+              {isRTL ? 'لا توجد منتجات مسجلة في المتجر' : 'Aucun produit disponible en caisse'}
+            </Text>
+            <Text style={styles.emptyProductsSub}>
+              {isRTL
+                ? 'يرجى التوجه إلى قسم (المنتجات) لإضافة سلع إلى المخزون.'
+                : 'Veuillez ajouter des articles dans l\'onglet Produits pour enregistrer des ventes.'}
+            </Text>
+          </View>
+        }
       />
 
       {/* Bottom Cart Summary Bar */}
@@ -1055,5 +1068,25 @@ const styles = StyleSheet.create({
   receiptCloseBtnText: {
     color: theme.colors.text,
     fontWeight: '600',
+  },
+  emptyProductsBox: {
+    width: '100%',
+    padding: theme.spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 40,
+  },
+  emptyProductsTitle: {
+    fontSize: theme.typography.medium,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  emptyProductsSub: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
   },
 });

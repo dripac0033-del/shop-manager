@@ -18,6 +18,7 @@ export default function DashboardScreen({ navigation }) {
     firebaseConnected,
     syncStatus,
     lastSyncTime,
+    refreshAllFromFirebase,
   } = useApp();
 
   // Metrics calculation
@@ -57,9 +58,15 @@ export default function DashboardScreen({ navigation }) {
               : (isRTL ? 'الوضع المحلي' : 'Mode Local')}
           </Text>
         </View>
-        {lastSyncTime && (
-          <Text style={styles.syncTimeText}>{lastSyncTime}</Text>
-        )}
+        <TouchableOpacity
+          style={{ flexDirection: 'row', alignItems: 'center' }}
+          onPress={refreshAllFromFirebase}
+        >
+          <Ionicons name="refresh" size={14} color={theme.colors.secondary} />
+          {lastSyncTime && (
+            <Text style={[styles.syncTimeText, { marginLeft: 4 }]}>{lastSyncTime}</Text>
+          )}
+        </TouchableOpacity>
       </View>
       {/* Header Banner */}
       <View style={[styles.headerBanner, isRTL && styles.rowReverse]}>
@@ -204,6 +211,7 @@ export default function DashboardScreen({ navigation }) {
               </Text>
               <Text style={styles.saleCustomer}>
                 {sale.paymentMethod === 'credit' ? (isRTL ? 'دين (كريدي)' : 'Crédit') : (isRTL ? 'دفع كاش' : 'Comptant')}
+                {sale.cashierName || sale.cashier ? ` • @${sale.cashierName || sale.cashier}` : ''}
               </Text>
             </View>
             <View style={styles.saleTotalBox}>

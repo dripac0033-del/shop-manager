@@ -5,6 +5,7 @@ import {
   doc,
   setDoc,
   getDocs,
+  getDoc,
   deleteDoc,
   updateDoc,
   onSnapshot,
@@ -478,5 +479,135 @@ export async function clearFirebaseCollection(collectionName) {
   } catch (err) {
     console.warn(`Failed to clear collection ${collectionName} in Firebase:`, err);
     throw err;
+  }
+}
+
+/**
+ * Save store info to Firebase Firestore 'settings' collection
+ */
+export async function saveStoreInfoToFirebase(info) {
+  if (!dbInstance) return;
+  try {
+    const infoRef = doc(dbInstance, 'settings', 'store_info');
+    await setDoc(infoRef, {
+      ...info,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return { success: true };
+  } catch (err) {
+    console.warn('Failed to save store info to Firebase:', err);
+  }
+}
+
+/**
+ * Fetch store info from Firebase Firestore
+ */
+export async function fetchStoreInfoFromFirebase() {
+  if (!dbInstance) return null;
+  try {
+    const infoRef = doc(dbInstance, 'settings', 'store_info');
+    const snap = await getDoc(infoRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch store info from Firebase:', err);
+  }
+  return null;
+}
+
+/**
+ * Listen in real-time to store info in 'settings/store_info'
+ */
+export function subscribeToFirebaseStoreInfo(onUpdate) {
+  if (!dbInstance) return () => {};
+  try {
+    const infoRef = doc(dbInstance, 'settings', 'store_info');
+    return onSnapshot(infoRef, (snap) => {
+      if (snap.exists() && onUpdate) {
+        onUpdate(snap.data());
+      }
+    });
+  } catch (err) {
+    console.warn('Error subscribing to store info:', err);
+    return () => {};
+  }
+}
+
+/**
+ * Save or update a user in Firebase Firestore 'users' collection
+ */
+export async function saveUserToFirebase(user) {
+  if (!dbInstance) return;
+  try {
+    const userRef = doc(dbInstance, 'users', user.id);
+    await setDoc(userRef, {
+      ...user,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true });
+    return { success: true };
+  } catch (err) {
+    console.warn(`Failed to save user ${user.id} to Firebase:`, err);
+    throw err;
+  }
+}
+
+/**
+ * Delete a user from Firebase Firestore
+ */
+export async function deleteUserFromFirebase(userId) {
+  if (!dbInstance) return;
+  try {
+    const userRef = doc(dbInstance, 'users', userId);
+    await deleteDoc(userRef);
+    return { success: true };
+  } catch (err) {
+    console.warn(`Failed to delete user ${userId} from Firebase:`, err);
+    throw err;
+  }
+}
+
+/**
+ * Fetch all users from Firebase Firestore
+ */
+export async function fetchUsersFromFirebase() {
+  if (!dbInstance) return [];
+  try {
+    const usersCol = collection(dbInstance, 'users');
+    const snapshot = await getDocs(usersCol);
+    const users = [];
+    snapshot.forEach((snap) => {
+      users.push({
+        ...snap.data(),
+        id: snap.id,
+      });
+    });
+    return users;
+  } catch (err) {
+    console.warn('Failed to fetch users from Firebase:', err);
+    return [];
+  }
+}
+
+/**
+ * Listen in real-time to users collection
+ */
+export function subscribeToFirebaseUsers(onUpdate) {
+  if (!dbInstance) return () => {};
+  try {
+    const usersCol = collection(dbInstance, 'users');
+    return onSnapshot(usersCol, (snapshot) => {
+      const users = [];
+      snapshot.forEach((snap) => {
+        users.push({
+          ...snap.data(),
+          id: snap.id,
+        });
+      });
+      if (onUpdate) onUpdate(users);
+    });
+  } catch (err) {
+    console.warn('Error subscribing to users:', err);
+    return () => {};
   }
 }

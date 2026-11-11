@@ -5,7 +5,19 @@ import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function ReportsScreen() {
-  const { t, formatMoney, sales = [], products = [], expenses = [], isRTL } = useApp();
+  const {
+    t,
+    formatMoney,
+    sales = [],
+    products = [],
+    expenses = [],
+    isRTL,
+    firebaseConnected,
+    syncStatus,
+    lastSyncTime,
+    refreshAllFromFirebase,
+  } = useApp();
+
   const [period, setPeriod] = useState('month'); // 'today' | 'week' | 'month' | 'all'
 
   // Filter sales & expenses by period
@@ -59,8 +71,14 @@ export default function ReportsScreen() {
   const netProfit = grossProfit - totalExpenses;
 
   // Inventory Valuation
-  const inventoryBuyValue = validProducts.reduce((sum, p) => sum + Number(p.buyPrice || 0) * Number(p.stock || 0), 0);
-  const inventorySellValue = validProducts.reduce((sum, p) => sum + Number(p.sellPrice || 0) * Number(p.stock || 0), 0);
+  const inventoryBuyValue = validProducts.reduce(
+    (sum, p) => sum + Number(p.buyPrice || 0) * Number(p.stock || 0),
+    0
+  );
+  const inventorySellValue = validProducts.reduce(
+    (sum, p) => sum + Number(p.sellPrice || 0) * Number(p.stock || 0),
+    0
+  );
   const potentialInventoryMargin = inventorySellValue - inventoryBuyValue;
 
   // Top Selling Items
@@ -80,6 +98,38 @@ export default function ReportsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Live Two-Way Sync Bar with Refresh */}
+      <View style={[styles.syncStatusBanner, isRTL && styles.rowReverse]}>
+        <View style={[styles.syncStatusLeft, isRTL && styles.rowReverse]}>
+          <View
+            style={[
+              styles.syncDot,
+              syncStatus === 'sending' || syncStatus === 'receiving'
+                ? styles.syncDotBlue
+                : firebaseConnected
+                ? styles.syncDotGreen
+                : styles.syncDotGray,
+            ]}
+          />
+          <Text style={styles.syncStatusText}>
+            {syncStatus === 'sending'
+              ? (isRTL ? 'تحديث الإحصائيات...' : 'Mise à jour en cours...')
+              : syncStatus === 'receiving'
+              ? (isRTL ? 'مزامنة المعاملات مباشرة مع فايربيس...' : 'Synchronisation directe Firebase...')
+              : firebaseConnected
+              ? (isRTL ? 'إحصائيات مباشرة من فايربيس' : 'Statistiques directes Firebase')
+              : (isRTL ? 'الوضع المحلي' : 'Mode Local')}
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.syncRefreshBtn} onPress={refreshAllFromFirebase}>
+          <Ionicons name="refresh" size={14} color={theme.colors.secondary} />
+          {lastSyncTime && (
+            <Text style={styles.syncTimeText}>{lastSyncTime}</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
       {/* Period Selector Tabs */}
       <View style={[styles.periodRow, isRTL && styles.rowReverse]}>
         {[
@@ -128,7 +178,9 @@ export default function ReportsScreen() {
           <Text style={[styles.statVal, { color: theme.colors.primary }]}>
             {formatMoney(totalRevenue)}
           </Text>
-          <Text style={styles.statSub}>{filteredSales.length} {isRTL ? 'عمليات بيع' : 'ventes'}</Text>
+          <Text style={styles.statSub}>
+            {filteredSales.length} {isRTL ? 'عمليات بيع' : 'ventes'}
+          </Text>
         </View>
 
         <View style={styles.statCard}>
@@ -136,7 +188,9 @@ export default function ReportsScreen() {
           <Text style={[styles.statVal, { color: theme.colors.danger }]}>
             {formatMoney(totalExpenses)}
           </Text>
-          <Text style={styles.statSub}>{filteredExpenses.length} {isRTL ? 'مصاريف مسجلة' : 'charges'}</Text>
+          <Text style={styles.statSub}>
+            {filteredExpenses.length} {isRTL ? 'مصاريف مسجلة' : 'charges'}
+          </Text>
         </View>
       </View>
 
@@ -146,16 +200,26 @@ export default function ReportsScreen() {
       </Text>
       <View style={styles.inventoryCard}>
         <View style={[styles.inventoryRow, isRTL && styles.rowReverse]}>
-          <Text style={styles.invLabel}>{isRTL ? 'القيمة بسعر الشراء (رأس المال):' : "Valeur d'Achat (Capital) :"}</Text>
+          <Text style={styles.invLabel}>
+            {isRTL ? 'القيمة بسعر الشراء (رأس المال):' : "Valeur d'Achat (Capital) :"}
+          </Text>
           <Text style={styles.invVal}>{formatMoney(inventoryBuyValue)}</Text>
         </View>
         <View style={[styles.inventoryRow, isRTL && styles.rowReverse]}>
-          <Text style={styles.invLabel}>{isRTL ? 'القيمة بسعر البيع (الإجمالي المتوقع):' : 'Valeur de Vente Totale :'}</Text>
-          <Text style={[styles.invVal, { color: theme.colors.primary }]}>{formatMoney(inventorySellValue)}</Text>
+          <Text style={styles.invLabel}>
+            {isRTL ? 'القيمة بسعر البيع (الإجمالي المتوقع):' : 'Valeur de Vente Totale :'}
+          </Text>
+          <Text style={[styles.invVal, { color: theme.colors.primary }]}>
+            {formatMoney(inventorySellValue)}
+          </Text>
         </View>
         <View style={[styles.inventoryRow, isRTL && styles.rowReverse, styles.noBorder]}>
-          <Text style={styles.invLabel}>{isRTL ? 'هامش الربح المتوقع في المخزن:' : 'Marge brute théorique :'}</Text>
-          <Text style={[styles.invVal, { color: theme.colors.secondary }]}>+{formatMoney(potentialInventoryMargin)}</Text>
+          <Text style={styles.invLabel}>
+            {isRTL ? 'هامش الربح المتوقع في المخزن:' : 'Marge brute théorique :'}
+          </Text>
+          <Text style={[styles.invVal, { color: theme.colors.secondary }]}>
+            +{formatMoney(potentialInventoryMargin)}
+          </Text>
         </View>
       </View>
 
@@ -165,7 +229,9 @@ export default function ReportsScreen() {
       </Text>
       {topProducts.length === 0 ? (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>{isRTL ? 'لا توجد مبيعات في هذه الفترة' : 'Aucune vente sur cette période'}</Text>
+          <Text style={styles.emptyText}>
+            {isRTL ? 'لا توجد مبيعات في هذه الفترة' : 'Aucune vente sur cette période'}
+          </Text>
         </View>
       ) : (
         topProducts.slice(0, 5).map((p, idx) => (
@@ -180,11 +246,61 @@ export default function ReportsScreen() {
             </View>
 
             <View style={styles.topProductSales}>
-              <Text style={styles.soldQtyText}>{p.soldQty} {isRTL ? 'مباع' : 'vendus'}</Text>
+              <Text style={styles.soldQtyText}>
+                {p.soldQty} {isRTL ? 'مباع' : 'vendus'}
+              </Text>
               <Text style={styles.soldTotalText}>{formatMoney(p.soldQty * p.sellPrice)}</Text>
             </View>
           </View>
         ))
+      )}
+
+      {/* Transactions & Cashiers log */}
+      <Text style={[styles.sectionTitle, isRTL && styles.textRight, { marginTop: 20 }]}>
+        {isRTL ? 'سجل المعاملات والصيارفة' : 'Historique des Ventes & Caissiers'}
+      </Text>
+      {filteredSales.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>
+            {isRTL ? 'لا توجد معاملات مسجلة' : 'Aucune transaction enregistrée'}
+          </Text>
+        </View>
+      ) : (
+        filteredSales.slice(0, 10).map((s) => {
+          const dateStr = s.date ? new Date(s.date).toLocaleDateString() : '';
+          const timeStr = s.date ? new Date(s.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          return (
+            <View key={s.id} style={[styles.transactionCard, isRTL && styles.rowReverse]}>
+              <View style={[styles.txIconBox, s.paymentMethod === 'credit' ? styles.bgCredit : styles.bgCash]}>
+                <Ionicons
+                  name={s.paymentMethod === 'credit' ? 'card-outline' : 'cash-outline'}
+                  size={20}
+                  color="#ffffff"
+                />
+              </View>
+
+              <View style={[styles.txMeta, isRTL && styles.alignRight]}>
+                <Text style={styles.txTotal}>{formatMoney(s.total)}</Text>
+                <Text style={styles.txDetails}>
+                  {(s.items || []).length} {isRTL ? 'سلع' : 'articles'} • {dateStr} {timeStr}
+                </Text>
+                <View style={[styles.cashierBadge, isRTL && styles.rowReverse]}>
+                  <Ionicons name="person" size={11} color={theme.colors.primary} />
+                  <Text style={styles.cashierBadgeText}>
+                    {isRTL ? 'البائع:' : 'Caissier :'} {s.cashierName || s.cashier || 'Admin'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.txProfitBox}>
+                <Text style={styles.txProfitText}>+{formatMoney(s.profit || 0)}</Text>
+                <Text style={styles.txMethodText}>
+                  {s.paymentMethod === 'credit' ? t('credit') : t('cash')}
+                </Text>
+              </View>
+            </View>
+          );
+        })
       )}
     </ScrollView>
   );
@@ -208,34 +324,80 @@ const styles = StyleSheet.create({
   alignRight: {
     alignItems: 'flex-end',
   },
+  syncStatusBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 6,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  syncStatusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  syncDotGreen: {
+    backgroundColor: theme.colors.success,
+  },
+  syncDotBlue: {
+    backgroundColor: theme.colors.secondary,
+  },
+  syncDotGray: {
+    backgroundColor: theme.colors.textMuted,
+  },
+  syncStatusText: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+    fontWeight: '600',
+  },
+  syncRefreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncTimeText: {
+    fontSize: 10,
+    color: theme.colors.textMuted,
+    marginLeft: 4,
+  },
   periodRow: {
     flexDirection: 'row',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.full,
-    padding: 4,
     marginBottom: theme.spacing.md,
-    elevation: 1,
   },
   periodTab: {
     flex: 1,
     paddingVertical: 8,
-    borderRadius: theme.borderRadius.full,
     alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    marginHorizontal: 3,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   periodTabActive: {
     backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
   },
   periodTabText: {
-    fontSize: theme.typography.small,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: 'bold',
     color: theme.colors.textSecondary,
   },
   periodTabTextActive: {
     color: '#ffffff',
   },
   netProfitCard: {
-    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.lg,
     alignItems: 'center',
     marginBottom: theme.spacing.md,
     elevation: 3,
@@ -370,6 +532,67 @@ const styles = StyleSheet.create({
   },
   soldTotalText: {
     fontSize: 11,
+    color: theme.colors.textMuted,
+  },
+  transactionCard: {
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    elevation: 1,
+  },
+  txIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  bgCash: {
+    backgroundColor: theme.colors.primary,
+  },
+  bgCredit: {
+    backgroundColor: theme.colors.danger,
+  },
+  txMeta: {
+    flex: 1,
+  },
+  txTotal: {
+    fontSize: theme.typography.medium,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  txDetails: {
+    fontSize: 11,
     color: theme.colors.textSecondary,
+    marginTop: 2,
+  },
+  cashierBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  cashierBadgeText: {
+    fontSize: 10,
+    color: theme.colors.primary,
+    fontWeight: '600',
+    marginLeft: 3,
+  },
+  txProfitBox: {
+    alignItems: 'flex-end',
+  },
+  txProfitText: {
+    fontSize: theme.typography.small,
+    fontWeight: 'bold',
+    color: theme.colors.secondary,
+  },
+  txMethodText: {
+    fontSize: 10,
+    color: theme.colors.textMuted,
+    marginTop: 2,
+    textTransform: 'uppercase',
   },
 });
