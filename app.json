@@ -6,6 +6,9 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": false,
+    "experiments": {
+      "baseUrl": "/shop-manager"
+    },
     "splash": {
       "resizeMode": "contain",
       "backgroundColor": "#2563eb"

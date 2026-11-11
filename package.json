@@ -1,6 +1,7 @@
 {
   "name": "shop-manager",
   "version": "1.0.0",
+  "homepage": "https://dripac0033-del.github.io/shop-manager",
   "main": "expo/AppEntry.js",
   "scripts": {
     "start": "expo start",

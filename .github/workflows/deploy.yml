@@ -34,7 +34,12 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Build Web Application
-        run: npx expo export --platform web
+        run: npx expo export --platform web -c
+
+      - name: Configure for GitHub Pages (Bypass Jekyll & SPA routing)
+        run: |
+          touch ./dist/.nojekyll
+          cp ./dist/index.html ./dist/404.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
