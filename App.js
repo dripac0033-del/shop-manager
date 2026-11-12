@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform, TouchableOpacity, Alert } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -24,6 +24,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function MainTabs() {
+  const navigation = useNavigation();
   const {
     t,
     products = [],
@@ -33,6 +34,8 @@ function MainTabs() {
     currentUser,
     logout,
     refreshAllFromFirebase,
+    firebaseConnected,
+    firebaseError,
     isRTL,
   } = useApp();
 
@@ -79,6 +82,21 @@ function MainTabs() {
                 <Text style={styles.userBadgeText}>@{currentUser.username}</Text>
               </View>
             )}
+
+            {/* Cloud Sync Status Icon */}
+            <TouchableOpacity
+              style={[
+                styles.headerIconBtn,
+                !firebaseConnected && firebaseError ? { backgroundColor: 'rgba(239, 68, 68, 0.4)' } : {}
+              ]}
+              onPress={() => navigation.navigate('Settings')}
+            >
+              <Ionicons
+                name={firebaseConnected ? 'cloud-done' : (firebaseError ? 'cloud-offline' : 'cloud-outline')}
+                size={18}
+                color={firebaseConnected ? '#86efac' : (firebaseError ? '#fca5a5' : '#ffffff')}
+              />
+            </TouchableOpacity>
 
             {/* Low stock notification bell */}
             <TouchableOpacity style={styles.headerIconBtn} onPress={openStockModal}>

@@ -18,6 +18,8 @@ export default function DashboardScreen({ navigation }) {
     storeInfo,
     openStockModal,
     firebaseConnected,
+    firebaseError,
+    firebaseErrorDetails,
     syncStatus,
     lastSyncTime,
     refreshAllFromFirebase,
@@ -55,6 +57,30 @@ export default function DashboardScreen({ navigation }) {
           <Ionicons name="settings-outline" size={24} color="#ffffff" />
         </TouchableOpacity>
       </View>
+
+      {/* Cloud Sync Warning Banner */}
+      {!firebaseConnected && firebaseError && (
+        <TouchableOpacity
+          style={[styles.syncWarningBanner, isRTL && styles.rowReverse]}
+          onPress={() => navigation.navigate('Settings')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.syncWarningIconBox}>
+            <Ionicons name="cloud-offline" size={22} color="#dc2626" />
+          </View>
+          <View style={[{ flex: 1, marginHorizontal: 10 }]}>
+            <Text style={[styles.syncWarningTitle, isRTL && styles.textRight]}>
+              {isRTL ? '⚠️ المزامنة السحابية غير مفعلة' : '⚠️ Cloud non synchronisé (Données non partagées)'}
+            </Text>
+            <Text style={[styles.syncWarningSub, isRTL && styles.textRight]}>
+              {isRTL
+                ? 'قاعدة بيانات Firestore غير مفعلة. البيانات لا تظهر على الكمبيوتر. اضغط هنا للإصلاح.'
+                : 'La base Firestore n\'est pas activée. Vos données ne s\'affichent pas sur le PC. Cliquez ici.'}
+            </Text>
+          </View>
+          <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={18} color="#991b1b" />
+        </TouchableOpacity>
+      )}
 
       {/* KPI Cards Grid */}
       <View style={styles.kpiGrid}>
@@ -263,7 +289,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: theme.spacing.md,
+  },
+  syncWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
+    borderWidth: 1.5,
+    borderColor: '#fca5a5',
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
     marginBottom: theme.spacing.lg,
+  },
+  syncWarningIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#fee2e2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  syncWarningTitle: {
+    fontSize: 12.5,
+    fontWeight: 'bold',
+    color: '#991b1b',
+  },
+  syncWarningSub: {
+    fontSize: 10.5,
+    color: '#7f1d1d',
+    marginTop: 2,
+    lineHeight: 15,
   },
   storeDetails: {
     flex: 1,

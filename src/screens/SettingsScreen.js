@@ -44,11 +44,16 @@ export default function SettingsScreen() {
     // Firebase
     firebaseConfig,
     firebaseConnected,
+    firebaseError,
+    firebaseErrorDetails,
     isSyncing,
     lastSyncTime,
     applyFirebaseConfig,
     uploadStockToCloud,
     downloadStockFromCloud,
+    uploadAllDataToCloud,
+    downloadAllDataFromCloud,
+    testCloudHealth,
     refreshAllFromFirebase,
   } = useApp();
 
@@ -63,6 +68,8 @@ export default function SettingsScreen() {
   const [projectId, setProjectId] = useState(firebaseConfig?.projectId || DEFAULT_FIREBASE_CONFIG.projectId);
   const [appId, setAppId] = useState(firebaseConfig?.appId || DEFAULT_FIREBASE_CONFIG.appId);
   const [authDomain, setAuthDomain] = useState(firebaseConfig?.authDomain || DEFAULT_FIREBASE_CONFIG.authDomain);
+  const [testingHealth, setTestingHealth] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   // New User Form Modal (Dedicated 'users' collection)
   const [userModalVisible, setUserModalVisible] = useState(false);
@@ -155,6 +162,68 @@ export default function SettingsScreen() {
       }
     } catch (err) {
       Alert.alert(t('pullFromCloud'), err.message);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTestingHealth(true);
+    setTestResult(null);
+    try {
+      const res = await testCloudHealth();
+      setTestResult(res);
+      if (res.success) {
+        showToast(isRTL ? '✅ الاتصال بسحابة فايربيس متصل ويعمل بشكل ممتاز!' : '✅ Connexion Firebase Firestore active et opérationnelle !');
+        Alert.alert(
+          isRTL ? 'اتصال ناجح' : 'Connexion Réussie',
+          isRTL ? 'قاعدة بيانات Firestore متصلة وجاهزة للمزامنة!' : 'La base Firestore est active et prête pour la synchronisation !'
+        );
+      } else {
+        Alert.alert(
+          isRTL ? 'تنبيه الاتصال بالسحابة' : 'Diagnostic de connexion Firebase',
+          res.error + (res.consoleUrl ? `\n\nLien de configuration :\n${res.consoleUrl}` : '')
+        );
+      }
+    } catch (err) {
+      setTestResult({ success: false, error: err.message });
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setTestingHealth(false);
+    }
+  };
+
+  const handlePushAllData = async () => {
+    try {
+      const res = await uploadAllDataToCloud();
+      const countMsg = `✅ ${res.counts.products} produits, ${res.counts.customers} clients, ${res.counts.sales} ventes, ${res.counts.repairs} réparations synchronisés avec succès vers le Cloud !`;
+      const countMsgAr = `✅ تمت مزامنة ${res.counts.products} منتج، ${res.counts.customers} زبون، ${res.counts.sales} مبيعات و ${res.counts.repairs} تصليحات مع السحابة بنجاح!`;
+      showToast(isRTL ? countMsgAr : countMsg);
+      Alert.alert(
+        isRTL ? 'مزامنة ناجحة' : 'Synchronisation Réussie (Téléphone ➔ Cloud)',
+        (isRTL ? countMsgAr : countMsg) + '\n\n' + (isRTL ? 'الآن يمكنك فتح الكمبيوتر وتحديث الصفحة وستظهر كل بياناتك فوراً!' : 'Vous pouvez maintenant ouvrir le PC, rafraîchir la page et toutes vos données s\'afficheront instantanément !')
+      );
+    } catch (err) {
+      Alert.alert(
+        isRTL ? 'خطأ في الرفع للسحابة' : 'Erreur d\'envoi vers le Cloud',
+        err.message
+      );
+    }
+  };
+
+  const handlePullAllData = async () => {
+    try {
+      const res = await downloadAllDataFromCloud();
+      const msg = `✅ ${res.count} éléments récupérés depuis le Cloud !`;
+      const msgAr = `✅ تم استيراد ${res.count} عنصر من السحابة بنجاح!`;
+      showToast(isRTL ? msgAr : msg);
+      Alert.alert(
+        isRTL ? 'استيراد ناجح' : 'Importation Réussie (Cloud ➔ PC)',
+        isRTL ? msgAr : msg
+      );
+    } catch (err) {
+      Alert.alert(
+        isRTL ? 'خطأ في التحميل من السحابة' : 'Erreur de récupération depuis le Cloud',
+        err.message
+      );
     }
   };
 
@@ -402,13 +471,13 @@ export default function SettingsScreen() {
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: firebaseConnected ? theme.colors.success : theme.colors.textMuted },
+              { backgroundColor: firebaseConnected ? theme.colors.success : theme.colors.danger },
             ]}
           />
           <Text
             style={[
               styles.statusPillText,
-              { color: firebaseConnected ? theme.colors.success : theme.colors.textMuted },
+              { color: firebaseConnected ? theme.colors.success : theme.colors.danger },
             ]}
           >
             {firebaseConnected ? t('connected') : t('disconnected')}
@@ -417,6 +486,59 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.card}>
+        {/* Sync Status Banner */}
+        {firebaseConnected ? (
+          <View style={styles.cloudSuccessBox}>
+            <Ionicons name="checkmark-circle" size={22} color={theme.colors.success} />
+            <Text style={[styles.cloudSuccessText, isRTL && styles.textRight]}>
+              {isRTL
+                ? '✅ المزامنة السحابية متصلة ونشطة ! البيانات مشتركة في الوقت الفعلي بين هاتفك وجهاز الكمبيوتر.'
+                : '✅ Mégasynchronisation Cloud active ! Vos données sont partagées en direct entre ce téléphone et votre PC.'}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.cloudWarningBox}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <Ionicons name="warning" size={24} color="#dc2626" />
+              <Text style={[styles.cloudWarningTitle, { marginLeft: 8 }]}>
+                {isRTL
+                  ? '⚠️ سبب عدم ظهور البيانات على الكمبيوتر'
+                  : '⚠️ Pourquoi vos données ne s\'affichent pas sur le PC ?'}
+              </Text>
+            </View>
+            <Text style={[styles.cloudWarningDesc, isRTL && styles.textRight]}>
+              {firebaseError === 'API_DISABLED'
+                ? (isRTL
+                    ? 'قاعدة بيانات Cloud Firestore غير مفعلة في حساب فايربيس الخاص بك. لهذا السبب، تظل المنتجات والزبائن محفوظة على هاتفك فقط دون أن تنتقل للكمبيوتر.'
+                    : "La base Cloud Firestore n'est pas encore activée sur votre projet Firebase. Vos données restent donc sur la mémoire locale du téléphone et ne sont pas transmises au PC.")
+                : (isRTL
+                    ? 'السحابة غير متصلة حالياً. تأكد من إنشاء Firestore وصلاحيات الأمان.'
+                    : "La connexion Cloud est inactive. Activez Firestore dans la console Firebase pour synchroniser vos deux appareils.")}
+            </Text>
+
+            <View style={styles.cloudStepsBox}>
+              <Text style={styles.cloudStepTitle}>
+                {isRTL ? 'خطوات التفعيل السريعة (3 خطوات) :' : 'Étapes d\'activation faciles (3 étapes) :'}
+              </Text>
+              <Text style={styles.cloudStepText}>
+                {isRTL
+                  ? '1. افتح الرابط في متصفحك: console.firebase.google.com/project/hadjali49-c42f4/firestore'
+                  : '1. Ouvrez dans votre navigateur : console.firebase.google.com/project/' + (projectId || 'hadjali49-c42f4') + '/firestore'}
+              </Text>
+              <Text style={styles.cloudStepText}>
+                {isRTL
+                  ? '2. اضغط على « Créer une base de données » واختر « Mode test ».'
+                  : '2. Cliquez sur « Créer une base de données » et activez en « Mode test ».'}
+              </Text>
+              <Text style={styles.cloudStepText}>
+                {isRTL
+                  ? '3. ارجع هنا واضغط « اختبار الاتصال » ثم « رفع كل البيانات إلى السحابة ».'
+                  : '3. Revenez ici, cliquez sur « Tester la connexion », puis sur « Envoyer TOUT vers le Cloud ».'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Firebase API Key *</Text>
         <TextInput
           style={[styles.inputBox, isRTL && styles.textRight]}
@@ -444,50 +566,90 @@ export default function SettingsScreen() {
           autoCapitalize="none"
         />
 
-        <TouchableOpacity style={styles.testBtn} onPress={handleSaveFirebaseConfig}>
-          <Ionicons name="cloud-upload" size={18} color="#ffffff" />
-          <Text style={styles.testBtnText}>{t('testConnection')}</Text>
-        </TouchableOpacity>
-
-        {/* Cloud Sync Actions */}
-        {firebaseConnected && (
-          <View style={styles.syncActionsBox}>
-            <View style={[styles.syncHeaderRow, isRTL && styles.rowReverse]}>
-              <Text style={styles.syncSubTitle}>
-                {isRTL ? 'إجراءات المزامنة السحابية' : 'Actions de synchronisation'}
-              </Text>
-              {lastSyncTime && (
-                <Text style={styles.lastSyncText}>
-                  {isRTL ? 'آخر مزامنة:' : 'Dernière synchro:'} {lastSyncTime}
-                </Text>
-              )}
-            </View>
-
-            {isSyncing ? (
-              <View style={styles.loadingRow}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-                <Text style={styles.syncingText}>{t('syncing')}</Text>
-              </View>
+        {/* Buttons Row: Test Connection & Save Config */}
+        <View style={[styles.testBtnRow, isRTL && styles.rowReverse]}>
+          <TouchableOpacity
+            style={[styles.testBtn, { flex: 1.3, marginRight: 8 }]}
+            onPress={handleTestConnection}
+            disabled={testingHealth}
+          >
+            {testingHealth ? (
+              <ActivityIndicator size="small" color="#ffffff" />
             ) : (
-              <View style={[styles.syncBtnRow, isRTL && styles.rowReverse]}>
+              <>
+                <Ionicons name="pulse" size={18} color="#ffffff" />
+                <Text style={styles.testBtnText}>{t('testFirebaseConnection')}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.saveConfBtn, { flex: 1 }]} onPress={handleSaveFirebaseConfig}>
+            <Ionicons name="save-outline" size={18} color="#ffffff" />
+            <Text style={styles.saveConfBtnText}>{t('save')}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Cloud Sync Actions Section */}
+        <View style={styles.syncActionsBox}>
+          <View style={[styles.syncHeaderRow, isRTL && styles.rowReverse]}>
+            <Text style={styles.syncSubTitle}>
+              {isRTL ? 'إجراءات المزامنة السحابية' : 'Actions de synchronisation'}
+            </Text>
+            {lastSyncTime && (
+              <Text style={styles.lastSyncText}>
+                {isRTL ? 'آخر مزامنة:' : 'Dernière synchro:'} {lastSyncTime}
+              </Text>
+            )}
+          </View>
+
+          {isSyncing ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <Text style={styles.syncingText}>{t('syncing')}</Text>
+            </View>
+          ) : (
+            <View style={{ gap: 8 }}>
+              {/* Main Full Push Button */}
+              <TouchableOpacity style={styles.pushAllBtn} onPress={handlePushAllData}>
+                <Ionicons name="cloud-upload" size={24} color="#ffffff" />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={styles.pushAllBtnTitle}>{t('pushAllToCloud')}</Text>
+                  <Text style={styles.pushAllBtnSub}>
+                    {isRTL ? 'نقل كل ما في الهاتف من منتجات وزبائن ومبيعات إلى السحابة' : 'Transférer tout le contenu du téléphone vers Firebase'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Main Full Pull Button */}
+              <TouchableOpacity style={styles.pullAllBtn} onPress={handlePullAllData}>
+                <Ionicons name="cloud-download" size={24} color="#ffffff" />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={styles.pullAllBtnTitle}>{t('pullAllFromCloud')}</Text>
+                  <Text style={styles.pullAllBtnSub}>
+                    {isRTL ? 'استيراد كل بيانات السحابة إلى هذا الكمبيوتر' : 'Importer toutes les données du Cloud sur ce PC'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={[styles.syncBtnRow, isRTL && styles.rowReverse, { marginTop: 4 }]}>
                 <TouchableOpacity style={styles.pushBtn} onPress={handlePushStock}>
-                  <Ionicons name="arrow-up-circle" size={18} color="#ffffff" />
+                  <Ionicons name="arrow-up-circle" size={16} color="#ffffff" />
                   <Text style={styles.syncBtnText}>{t('pushToCloud')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.pullBtn} onPress={handlePullStock}>
-                  <Ionicons name="arrow-down-circle" size={18} color="#ffffff" />
+                  <Ionicons name="arrow-down-circle" size={16} color="#ffffff" />
                   <Text style={styles.syncBtnText}>{t('pullFromCloud')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.refreshBtn} onPress={refreshAllFromFirebase}>
-                  <Ionicons name="refresh" size={18} color="#ffffff" />
-                  <Text style={styles.syncBtnText}>{isRTL ? 'تحديث الكل' : 'Actualiser'}</Text>
+                  <Ionicons name="refresh" size={16} color="#ffffff" />
+                  <Text style={styles.syncBtnText}>{isRTL ? 'تحديث' : 'Actualiser'}</Text>
                 </TouchableOpacity>
               </View>
-            )}
-          </View>
-        )}
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Store Information Section */}
@@ -902,12 +1064,123 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.sm,
     borderRadius: theme.borderRadius.md,
-    marginTop: theme.spacing.md,
   },
   testBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
     marginLeft: 6,
+  },
+  testBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: theme.spacing.md,
+  },
+  saveConfBtn: {
+    backgroundColor: theme.colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.md,
+  },
+  saveConfBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    marginLeft: 6,
+    fontSize: 12,
+  },
+  cloudSuccessBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#6ee7b7',
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
+    marginBottom: theme.spacing.md,
+  },
+  cloudSuccessText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#065f46',
+    lineHeight: 18,
+  },
+  cloudWarningBox: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1.5,
+    borderColor: '#fca5a5',
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
+    marginBottom: theme.spacing.md,
+  },
+  cloudWarningTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#991b1b',
+  },
+  cloudWarningDesc: {
+    fontSize: 11.5,
+    color: '#7f1d1d',
+    lineHeight: 17,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  cloudStepsBox: {
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.sm,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+  },
+  cloudStepTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#c2410c',
+    marginBottom: 4,
+  },
+  cloudStepText: {
+    fontSize: 10.5,
+    color: '#334155',
+    lineHeight: 16,
+    marginVertical: 2,
+  },
+  pushAllBtn: {
+    backgroundColor: '#ea580c',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
+  },
+  pushAllBtnTitle: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  pushAllBtnSub: {
+    color: '#ffedd5',
+    fontSize: 10,
+    marginTop: 1,
+  },
+  pullAllBtn: {
+    backgroundColor: '#0284c7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
+  },
+  pullAllBtnTitle: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  pullAllBtnSub: {
+    color: '#e0f2fe',
+    fontSize: 10,
+    marginTop: 1,
   },
   syncActionsBox: {
     marginTop: theme.spacing.md,

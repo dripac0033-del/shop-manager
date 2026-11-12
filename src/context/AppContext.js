@@ -55,7 +55,10 @@ import {
   saveStoreInfoToFirebase,
   fetchStoreInfoFromFirebase,
   subscribeToFirebaseStoreInfo,
-  // Helpers
+  // Helpers & Full Sync
+  checkFirestoreHealth,
+  uploadAllDataToFirebase,
+  fetchAllDataFromFirebase,
   clearFirebaseCollection,
   DEFAULT_FIREBASE_CONFIG,
 } from '../services/firebase';
@@ -120,6 +123,8 @@ export const AppProvider = ({ children }) => {
   // Firebase Synchronization State
   const [firebaseConfig, setFirebaseConfigState] = useState(DEFAULT_FIREBASE_CONFIG);
   const [firebaseConnected, setFirebaseConnected] = useState(false);
+  const [firebaseError, setFirebaseError] = useState(null); // null | 'API_DISABLED' | 'PERMISSION_DENIED' | string
+  const [firebaseErrorDetails, setFirebaseErrorDetails] = useState(null);
   const [syncStatus, setSyncStatus] = useState('connected'); // 'connected' | 'sending' | 'receiving' | 'offline'
   const [lastSyncTime, setLastSyncTime] = useState(null);
 
@@ -272,11 +277,22 @@ export const AppProvider = ({ children }) => {
         const initRes = initFirebase(activeConfig);
 
         if (initRes.success) {
-          setFirebaseConnected(true);
-          setSyncStatus('connected');
-          // Refresh from Firebase safely (without wiping local data)
-          await refreshAllFromFirebase();
+          const health = await checkFirestoreHealth(activeConfig.projectId, activeConfig.apiKey);
+          if (health.success) {
+            setFirebaseConnected(true);
+            setFirebaseError(null);
+            setFirebaseErrorDetails(null);
+            setSyncStatus('connected');
+            await refreshAllFromFirebase();
+          } else {
+            setFirebaseConnected(false);
+            setFirebaseError(health.status);
+            setFirebaseErrorDetails(health.consoleUrl || health.error);
+            setSyncStatus('offline');
+          }
         } else {
+          setFirebaseConnected(false);
+          setFirebaseError('INIT_FAILED');
           setSyncStatus('offline');
         }
       } catch (err) {
@@ -408,6 +424,22 @@ export const AppProvider = ({ children }) => {
     let unsubUsers = () => {};
     let unsubStoreInfo = () => {};
 
+    const handleSubError = (err) => {
+      console.warn('Real-time listener error:', err);
+      const msg = err?.message || String(err);
+      setFirebaseConnected(false);
+      if (msg.includes('Cloud Firestore API has not been used') || msg.includes('disabled') || msg.includes('SERVICE_DISABLED')) {
+        setFirebaseError('API_DISABLED');
+        setFirebaseErrorDetails(`https://console.firebase.google.com/project/${firebaseConfig?.projectId || 'hadjali49-c42f4'}/firestore`);
+      } else if (msg.includes('permission-denied') || msg.includes('PERMISSION_DENIED')) {
+        setFirebaseError('PERMISSION_DENIED');
+        setFirebaseErrorDetails(`https://console.firebase.google.com/project/${firebaseConfig?.projectId || 'hadjali49-c42f4'}/firestore/rules`);
+      } else {
+        setFirebaseError(msg);
+      }
+      setSyncStatus('offline');
+    };
+
     try {
       unsubProducts = subscribeToFirebaseProducts((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -415,7 +447,7 @@ export const AppProvider = ({ children }) => {
           setProducts(cloud);
           saveState('@store_products', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubCategories = subscribeToFirebaseCategories((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -423,7 +455,7 @@ export const AppProvider = ({ children }) => {
           setCategories(cloud);
           saveState('@store_categories', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubCustomers = subscribeToFirebaseCustomers((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -431,7 +463,7 @@ export const AppProvider = ({ children }) => {
           setCustomers(cloud);
           saveState('@store_customers', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubSales = subscribeToFirebaseSales((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -439,7 +471,7 @@ export const AppProvider = ({ children }) => {
           setSales(cloud);
           saveState('@store_sales', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubTransactions = subscribeToFirebaseTransactions((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -447,7 +479,7 @@ export const AppProvider = ({ children }) => {
           setTransactions(cloud);
           saveState('@store_transactions', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubServices = subscribeToFirebaseServices((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -455,7 +487,7 @@ export const AppProvider = ({ children }) => {
           setServices(cloud);
           saveState('@store_services', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubRepairs = subscribeToFirebaseRepairs((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -463,7 +495,7 @@ export const AppProvider = ({ children }) => {
           setRepairs(cloud);
           saveState('@store_repairs', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubExpenses = subscribeToFirebaseExpenses((cloud) => {
         if (isLocalUpdateRef.current) return;
@@ -471,7 +503,7 @@ export const AppProvider = ({ children }) => {
           setExpenses(cloud);
           saveState('@store_expenses', cloud);
         }
-      });
+      }, handleSubError);
 
       unsubUsers = subscribeToFirebaseUsers((cloud) => {
         if (Array.isArray(cloud) && cloud.length > 0) {
@@ -1440,27 +1472,66 @@ export const AppProvider = ({ children }) => {
   };
 
   // ==============================================================
-  // FIREBASE CONFIGURATION ACTIONS
+  // FIREBASE CONFIGURATION & FULL CLOUD SYNC ACTIONS
   // ==============================================================
   const applyFirebaseConfig = async (newConfig) => {
     setFirebaseConfigState(newConfig);
     const res = await saveFirebaseConfig(newConfig);
     if (res.success) {
-      setFirebaseConnected(true);
-      setSyncStatus('connected');
-      await refreshAllFromFirebase();
-      return { success: true };
+      const health = await checkFirestoreHealth(newConfig.projectId, newConfig.apiKey);
+      if (health.success) {
+        setFirebaseConnected(true);
+        setFirebaseError(null);
+        setFirebaseErrorDetails(null);
+        setSyncStatus('connected');
+        await refreshAllFromFirebase();
+        return { success: true };
+      } else {
+        setFirebaseConnected(false);
+        setFirebaseError(health.status);
+        setFirebaseErrorDetails(health.consoleUrl || health.error);
+        setSyncStatus('offline');
+        return {
+          success: false,
+          error: health.error,
+          status: health.status,
+          consoleUrl: health.consoleUrl,
+        };
+      }
     } else {
       setFirebaseConnected(false);
+      setFirebaseError('INIT_FAILED');
       setSyncStatus('offline');
       return { success: false, error: res.error || res.reason };
     }
   };
 
+  const testCloudHealth = async () => {
+    const health = await checkFirestoreHealth(firebaseConfig?.projectId, firebaseConfig?.apiKey);
+    if (health.success) {
+      setFirebaseConnected(true);
+      setFirebaseError(null);
+      setFirebaseErrorDetails(null);
+      setSyncStatus('connected');
+    } else {
+      setFirebaseConnected(false);
+      setFirebaseError(health.status);
+      setFirebaseErrorDetails(health.consoleUrl || health.error);
+      setSyncStatus('offline');
+    }
+    return health;
+  };
+
   const uploadStockToCloud = async () => {
     setSyncStatus('sending');
     try {
+      const health = await checkFirestoreHealth(firebaseConfig?.projectId, firebaseConfig?.apiKey);
+      if (!health.success) {
+        throw new Error(health.error + (health.consoleUrl ? `\n${health.consoleUrl}` : ''));
+      }
       const res = await uploadAllProductsToFirebase(products);
+      setFirebaseConnected(true);
+      setFirebaseError(null);
       setLastSyncTime(new Date().toLocaleTimeString());
       setSyncStatus('connected');
       return res;
@@ -1473,16 +1544,133 @@ export const AppProvider = ({ children }) => {
   const downloadStockFromCloud = async () => {
     setSyncStatus('receiving');
     try {
+      const health = await checkFirestoreHealth(firebaseConfig?.projectId, firebaseConfig?.apiKey);
+      if (!health.success) {
+        throw new Error(health.error + (health.consoleUrl ? `\n${health.consoleUrl}` : ''));
+      }
       const cloudProducts = await fetchProductsFromFirebase();
       if (cloudProducts && cloudProducts.length > 0) {
         setProducts(cloudProducts);
         saveState('@store_products', cloudProducts);
+        setFirebaseConnected(true);
+        setFirebaseError(null);
         setLastSyncTime(new Date().toLocaleTimeString());
         setSyncStatus('connected');
         return { success: true, count: cloudProducts.length };
       }
       setSyncStatus('connected');
       return { success: false, message: 'Aucun produit trouvé sur Firebase' };
+    } catch (e) {
+      setSyncStatus('connected');
+      throw e;
+    }
+  };
+
+  const uploadAllDataToCloud = async () => {
+    setSyncStatus('sending');
+    try {
+      const health = await checkFirestoreHealth(firebaseConfig?.projectId, firebaseConfig?.apiKey);
+      if (!health.success) {
+        setFirebaseConnected(false);
+        setFirebaseError(health.status);
+        setFirebaseErrorDetails(health.consoleUrl || health.error);
+        setSyncStatus('offline');
+        throw new Error(health.error + (health.consoleUrl ? `\n${health.consoleUrl}` : ''));
+      }
+
+      const res = await uploadAllDataToFirebase({
+        products,
+        categories,
+        customers,
+        sales,
+        transactions,
+        services,
+        repairs,
+        expenses,
+        users,
+        storeInfo,
+      });
+
+      setFirebaseConnected(true);
+      setFirebaseError(null);
+      setFirebaseErrorDetails(null);
+      setLastSyncTime(new Date().toLocaleTimeString());
+      setSyncStatus('connected');
+      return res;
+    } catch (e) {
+      setSyncStatus('connected');
+      throw e;
+    }
+  };
+
+  const downloadAllDataFromCloud = async () => {
+    setSyncStatus('receiving');
+    try {
+      const health = await checkFirestoreHealth(firebaseConfig?.projectId, firebaseConfig?.apiKey);
+      if (!health.success) {
+        setFirebaseConnected(false);
+        setFirebaseError(health.status);
+        setFirebaseErrorDetails(health.consoleUrl || health.error);
+        setSyncStatus('offline');
+        throw new Error(health.error + (health.consoleUrl ? `\n${health.consoleUrl}` : ''));
+      }
+
+      const data = await fetchAllDataFromFirebase();
+      let totalCount = 0;
+
+      if (Array.isArray(data.products) && data.products.length > 0) {
+        setProducts(data.products);
+        saveState('@store_products', data.products);
+        totalCount += data.products.length;
+      }
+      if (Array.isArray(data.categories) && data.categories.length > 0) {
+        setCategories(data.categories);
+        saveState('@store_categories', data.categories);
+      }
+      if (Array.isArray(data.customers) && data.customers.length > 0) {
+        setCustomers(data.customers);
+        saveState('@store_customers', data.customers);
+        totalCount += data.customers.length;
+      }
+      if (Array.isArray(data.sales) && data.sales.length > 0) {
+        setSales(data.sales);
+        saveState('@store_sales', data.sales);
+        totalCount += data.sales.length;
+      }
+      if (Array.isArray(data.transactions) && data.transactions.length > 0) {
+        setTransactions(data.transactions);
+        saveState('@store_transactions', data.transactions);
+      }
+      if (Array.isArray(data.services) && data.services.length > 0) {
+        setServices(data.services);
+        saveState('@store_services', data.services);
+        totalCount += data.services.length;
+      }
+      if (Array.isArray(data.repairs) && data.repairs.length > 0) {
+        setRepairs(data.repairs);
+        saveState('@store_repairs', data.repairs);
+        totalCount += data.repairs.length;
+      }
+      if (Array.isArray(data.expenses) && data.expenses.length > 0) {
+        setExpenses(data.expenses);
+        saveState('@store_expenses', data.expenses);
+        totalCount += data.expenses.length;
+      }
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        setUsers(data.users);
+        saveState('@store_users', data.users);
+      }
+      if (data.storeInfo && typeof data.storeInfo === 'object') {
+        setStoreInfo(data.storeInfo);
+        saveState('@store_info', data.storeInfo);
+      }
+
+      setFirebaseConnected(true);
+      setFirebaseError(null);
+      setFirebaseErrorDetails(null);
+      setLastSyncTime(new Date().toLocaleTimeString());
+      setSyncStatus('connected');
+      return { success: true, count: totalCount };
     } catch (e) {
       setSyncStatus('connected');
       throw e;
@@ -1615,12 +1803,17 @@ export const AppProvider = ({ children }) => {
         // Firebase Sync
         firebaseConfig,
         firebaseConnected,
+        firebaseError,
+        firebaseErrorDetails,
         syncStatus,
         isSyncing: syncStatus === 'sending' || syncStatus === 'receiving',
         lastSyncTime,
         applyFirebaseConfig,
         uploadStockToCloud,
         downloadStockFromCloud,
+        uploadAllDataToCloud,
+        downloadAllDataFromCloud,
+        testCloudHealth,
       }}
     >
       {children}

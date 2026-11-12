@@ -105,6 +105,55 @@ export function isFirebaseReady() {
   return dbInstance !== null;
 }
 
+/**
+ * Fast HTTP check to test if Cloud Firestore API is enabled and accessible on project
+ */
+export async function checkFirestoreHealth(projectId, apiKey) {
+  const pId = projectId || DEFAULT_FIREBASE_CONFIG.projectId;
+  const key = apiKey || DEFAULT_FIREBASE_CONFIG.apiKey;
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${pId}/databases/(default)/documents/settings?key=${key}`;
+    const res = await fetch(url);
+    const data = await res.json().catch(() => null);
+
+    if (res.status === 403) {
+      const msg = data?.error?.message || '';
+      if (msg.includes('Cloud Firestore API has not been used') || msg.includes('disabled') || msg.includes('SERVICE_DISABLED')) {
+        return {
+          status: 'API_DISABLED',
+          success: false,
+          error: "Base de données Cloud Firestore non créée sur Firebase.",
+          consoleUrl: `https://console.firebase.google.com/project/${pId}/firestore`,
+        };
+      }
+      if (data?.error?.status === 'PERMISSION_DENIED') {
+        return {
+          status: 'PERMISSION_DENIED',
+          success: false,
+          error: "Accès refusé par les règles de sécurité Firestore.",
+          consoleUrl: `https://console.firebase.google.com/project/${pId}/firestore/rules`,
+        };
+      }
+    }
+
+    if (res.status === 200 || res.status === 404) {
+      return { status: 'OK', success: true };
+    }
+
+    return {
+      status: 'WARNING',
+      success: false,
+      error: data?.error?.message || `Statut HTTP ${res.status}`,
+    };
+  } catch (err) {
+    return {
+      status: 'NETWORK_ERROR',
+      success: false,
+      error: err.message || 'Impossible de contacter Firebase',
+    };
+  }
+}
+
 /* ==============================================================
  * GENERIC SAFE FIRESTORE HELPERS
  * ============================================================== */
@@ -434,4 +483,168 @@ export async function clearFirebaseCollection(collectionName) {
   } catch (err) {
     console.warn(`Failed to clear collection ${collectionName} in Firebase:`, err);
   }
+}
+
+/* ==============================================================
+ * FULL DATABASE SYNC (UPLOAD ALL & DOWNLOAD ALL)
+ * ============================================================== */
+
+/**
+ * Upload all local tables to Cloud Firestore in one operation
+ */
+export async function uploadAllDataToFirebase(allData) {
+  if (!dbInstance) throw new Error('Firebase Firestore non initialisé.');
+
+  const health = await checkFirestoreHealth();
+  if (!health.success) {
+    throw new Error(health.error + (health.consoleUrl ? `\nOuvrez: ${health.consoleUrl}` : ''));
+  }
+
+  const counts = {
+    products: 0,
+    categories: 0,
+    customers: 0,
+    sales: 0,
+    transactions: 0,
+    services: 0,
+    repairs: 0,
+    expenses: 0,
+    users: 0,
+  };
+
+  if (Array.isArray(allData.products)) {
+    for (const p of allData.products) {
+      if (p && p.id) {
+        await saveProductToFirebase(p);
+        counts.products++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.categories)) {
+    for (const c of allData.categories) {
+      if (c && c.id) {
+        await saveCategoryToFirebase(c);
+        counts.categories++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.customers)) {
+    for (const cu of allData.customers) {
+      if (cu && cu.id) {
+        await saveCustomerToFirebase(cu);
+        counts.customers++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.sales)) {
+    for (const s of allData.sales) {
+      if (s && s.id) {
+        await saveSaleToFirebase(s);
+        counts.sales++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.transactions)) {
+    for (const tx of allData.transactions) {
+      if (tx && tx.id) {
+        await saveTransactionToFirebase(tx);
+        counts.transactions++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.services)) {
+    for (const sv of allData.services) {
+      if (sv && sv.id) {
+        await saveServiceToFirebase(sv);
+        counts.services++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.repairs)) {
+    for (const r of allData.repairs) {
+      if (r && r.id) {
+        await saveRepairToFirebase(r);
+        counts.repairs++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.expenses)) {
+    for (const e of allData.expenses) {
+      if (e && e.id) {
+        await saveExpenseToFirebase(e);
+        counts.expenses++;
+      }
+    }
+  }
+
+  if (Array.isArray(allData.users)) {
+    for (const u of allData.users) {
+      if (u && u.id) {
+        await saveUserToFirebase(u);
+        counts.users++;
+      }
+    }
+  }
+
+  if (allData.storeInfo) {
+    await saveStoreInfoToFirebase(allData.storeInfo);
+  }
+
+  return { success: true, counts };
+}
+
+/**
+ * Fetch all collections from Cloud Firestore
+ */
+export async function fetchAllDataFromFirebase() {
+  if (!dbInstance) throw new Error('Firebase Firestore non initialisé.');
+
+  const health = await checkFirestoreHealth();
+  if (!health.success) {
+    throw new Error(health.error + (health.consoleUrl ? `\nOuvrez: ${health.consoleUrl}` : ''));
+  }
+
+  const [
+    products,
+    categories,
+    customers,
+    sales,
+    transactions,
+    services,
+    repairs,
+    expenses,
+    users,
+    storeInfo,
+  ] = await Promise.all([
+    fetchProductsFromFirebase(),
+    fetchCategoriesFromFirebase(),
+    fetchCustomersFromFirebase(),
+    fetchSalesFromFirebase(),
+    fetchTransactionsFromFirebase(),
+    fetchServicesFromFirebase(),
+    fetchRepairsFromFirebase(),
+    fetchExpensesFromFirebase(),
+    fetchUsersFromFirebase(),
+    fetchStoreInfoFromFirebase(),
+  ]);
+
+  return {
+    products,
+    categories,
+    customers,
+    sales,
+    transactions,
+    services,
+    repairs,
+    expenses,
+    users,
+    storeInfo,
+  };
 }
