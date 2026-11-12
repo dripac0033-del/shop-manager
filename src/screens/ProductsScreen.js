@@ -20,10 +20,13 @@ export default function ProductsScreen() {
     t,
     formatMoney,
     products = [],
+    categories = [],
     addProduct,
     updateProduct,
     deleteProduct,
     adjustProductStock,
+    addCategory,
+    deleteCategory,
     isRTL,
     firebaseConnected,
     uploadStockToCloud,
@@ -35,12 +38,18 @@ export default function ProductsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [stockFilter, setStockFilter] = useState('all'); // 'all' | 'normal' | 'low' | 'out'
+  const [sortBy, setSortBy] = useState('name'); // 'name' | 'priceAsc' | 'priceDesc' | 'stockAsc' | 'stockDesc'
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+
+  // Modals
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-
-  // Quick Barcode Scan Modal for Product screen
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
   const [scannerModalVisible, setScannerModalVisible] = useState(false);
   const [scannedCodeInput, setScannedCodeInput] = useState('');
+
+  // Toast feedback
+  const [toastMessage, setToastMessage] = useState('');
 
   // Form State
   const [barcode, setBarcode] = useState('');
@@ -52,17 +61,25 @@ export default function ProductsScreen() {
   const [stock, setStock] = useState('10');
   const [minStock, setMinStock] = useState('5');
 
-  // Categories list with safe fallback
-  const validProducts = Array.isArray(products) ? products : [];
-  const categories = ['All', ...new Set(validProducts.map((p) => p.category).filter(Boolean))];
+  // New Category Form State
+  const [newCatNameFr, setNewCatNameFr] = useState('');
+  const [newCatNameAr, setNewCatNameAr] = useState('');
+  const [newCatColor, setNewCatColor] = useState('#10b981');
 
-  // Open modal for Add or Edit
+  const validProducts = Array.isArray(products) ? products : [];
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
+
+  // Open modal for Add
   const handleOpenAdd = () => {
     setEditingProduct(null);
     setBarcode(Math.floor(6130000000 + Math.random() * 999999).toString());
     setNameFr('');
     setNameAr('');
-    setCategory('Alimentation');
+    setCategory(categories[0]?.nameFr || 'Alimentation');
     setBuyPrice('');
     setSellPrice('');
     setStock('10');
@@ -83,6 +100,7 @@ export default function ProductsScreen() {
     setModalVisible(true);
   };
 
+  // Direct Validation & Instant Window Closure
   const handleSaveProduct = async () => {
     if (!nameFr.trim() && !nameAr.trim()) {
       Alert.alert(t('save'), isRTL ? 'يرجى إدخال اسم المنتج!' : 'Veuillez saisir le nom du produit !');
@@ -104,41 +122,79 @@ export default function ProductsScreen() {
       minStock: Number(minStock || 5),
     };
 
+    // CLOSE WINDOW DIRECTLY
+    setModalVisible(false);
+
     try {
       if (editingProduct) {
         await updateProduct(editingProduct.id, payload);
+        showToast(isRTL ? '✅ تم تحديث المنتج بنجاح' : '✅ Produit modifié avec succès');
       } else {
         await addProduct(payload);
+        showToast(isRTL ? '✅ تم إضافة المنتج وحفظه بنجاح' : '✅ Produit ajouté et enregistré');
       }
-      setModalVisible(false);
     } catch (err) {
       console.warn('Error saving product:', err);
-      setModalVisible(false);
     }
   };
 
   const handleDelete = (id) => {
+    const confirmMsg = isRTL ? 'هل تريد حقاً حذف هذا المنتج من المخزون؟' : 'Voulez-vous vraiment supprimer ce produit ?';
     if (Platform.OS === 'web') {
-      const confirmed =
-        typeof window !== 'undefined' && window.confirm
-          ? window.confirm(isRTL ? 'هل تريد حقاً حذف هذا المنتج؟' : 'Voulez-vous vraiment supprimer ce produit ?')
-          : true;
+      const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmMsg) : true;
       if (confirmed) {
         deleteProduct(id);
+        showToast(isRTL ? 'تم حذف المنتج' : 'Produit supprimé');
       }
       return;
     }
     Alert.alert(
       t('deleteProduct'),
-      t('confirmDelete'),
+      confirmMsg,
       [
         { text: t('cancel'), style: 'cancel' },
-        { text: t('deleteProduct'), style: 'destructive', onPress: () => deleteProduct(id) },
+        {
+          text: t('deleteProduct'),
+          style: 'destructive',
+          onPress: () => {
+            deleteProduct(id);
+            showToast(isRTL ? 'تم حذف المنتج' : 'Produit supprimé');
+          },
+        },
       ]
     );
   };
 
-  // Quick Stock Adjust (+5, +10, -1) with safe execution
+  // Add Category handler
+  const handleCreateCategory = async () => {
+    if (!newCatNameFr.trim()) {
+      Alert.alert(t('categories'), isRTL ? 'يرجى إدخال اسم الصنف!' : 'Veuillez saisir le nom de la catégorie !');
+      return;
+    }
+
+    try {
+      await addCategory({
+        nameFr: newCatNameFr.trim(),
+        nameAr: newCatNameAr.trim() || newCatNameFr.trim(),
+        color: newCatColor,
+      });
+      setNewCatNameFr('');
+      setNewCatNameAr('');
+      showToast(isRTL ? '✅ تم إنشاء الصنف بنجاح' : '✅ Catégorie créée avec succès');
+    } catch (err) {
+      console.warn('Error creating category:', err);
+    }
+  };
+
+  const handleDeleteCategory = (catId) => {
+    if (categories.length <= 1) {
+      Alert.alert(t('categories'), isRTL ? 'يجب إبقاء صنف واحد على الأقل!' : 'Vous devez garder au moins une catégorie !');
+      return;
+    }
+    deleteCategory(catId);
+  };
+
+  // Quick Stock Adjust (+5, +10, -1)
   const handleQuickStock = async (item, delta) => {
     if (adjustProductStock) {
       await adjustProductStock(item.id, delta);
@@ -195,22 +251,26 @@ export default function ProductsScreen() {
     }
   };
 
-  // Filtered Products
-  const filteredProducts = validProducts.filter((p) => {
+  // Filtered & Sorted Products
+  let processedProducts = validProducts.filter((p) => {
     if (!p) return false;
     const barcodeStr = p.barcode ? String(p.barcode) : '';
     const nameFrStr = p.nameFr ? String(p.nameFr).toLowerCase() : '';
     const nameArStr = p.nameAr ? String(p.nameAr) : '';
+    const catStr = p.category ? String(p.category).toLowerCase() : '';
     const q = searchQuery.toLowerCase().trim();
 
     const matchesSearch =
       barcodeStr.includes(q) ||
       nameFrStr.includes(q) ||
-      nameArStr.includes(q);
+      nameArStr.includes(q) ||
+      catStr.includes(q);
 
-    const matchesCat = selectedCategory === 'All' || p.category === selectedCategory;
+    const matchesCat =
+      selectedCategory === 'All' ||
+      p.category === selectedCategory ||
+      (selectedCategory.nameFr && p.category === selectedCategory.nameFr);
 
-    // Stock Filter Logic
     let matchesStock = true;
     if (stockFilter === 'normal') {
       matchesStock = p.stock > p.minStock;
@@ -223,14 +283,39 @@ export default function ProductsScreen() {
     return matchesSearch && matchesCat && matchesStock;
   });
 
-  // Calculate quick stock metrics
-  const totalStockCount = validProducts.reduce((sum, p) => sum + Number(p.stock || 0), 0);
+  // Sorting
+  processedProducts.sort((a, b) => {
+    if (sortBy === 'name') {
+      return (a.nameFr || '').localeCompare(b.nameFr || '');
+    }
+    if (sortBy === 'priceAsc') {
+      return Number(a.sellPrice || 0) - Number(b.sellPrice || 0);
+    }
+    if (sortBy === 'priceDesc') {
+      return Number(b.sellPrice || 0) - Number(a.sellPrice || 0);
+    }
+    if (sortBy === 'stockAsc') {
+      return Number(a.stock || 0) - Number(b.stock || 0);
+    }
+    if (sortBy === 'stockDesc') {
+      return Number(b.stock || 0) - Number(a.stock || 0);
+    }
+    return 0;
+  });
+
   const lowStockCount = validProducts.filter((p) => p.stock <= p.minStock && p.stock > 0).length;
   const outOfStockCount = validProducts.filter((p) => p.stock <= 0).length;
 
   return (
     <View style={styles.container}>
-      {/* Top Header and Search Controls */}
+      {/* Toast Banner */}
+      {toastMessage ? (
+        <View style={styles.toastBanner}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </View>
+      ) : null}
+
+      {/* Top Header & Search Controls */}
       <View style={[styles.topRow, isRTL && styles.rowReverse]}>
         <View style={[styles.searchBar, isRTL && styles.rowReverse]}>
           <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
@@ -248,37 +333,24 @@ export default function ProductsScreen() {
           )}
         </View>
 
-        {/* CSV Export Button */}
+        {/* Barcode Scanner Button */}
         <TouchableOpacity
-          style={styles.csvExportBtn}
-          onPress={handleExportCSV}
-          title="Exporter CSV"
+          style={styles.scanBtn}
+          onPress={() => setScannerModalVisible(true)}
+          title="Scanner"
         >
-          <Ionicons name="download-outline" size={18} color="#ffffff" />
-          <Text style={styles.csvBtnText}>CSV</Text>
+          <Ionicons name="barcode-outline" size={20} color="#ffffff" />
         </TouchableOpacity>
 
-        {/* Cloud Sync Button */}
-        {firebaseConnected && (
-          <TouchableOpacity
-            style={[styles.cloudSyncBtn, syncStatus === 'sending' && { opacity: 0.6 }]}
-            onPress={async () => {
-              try {
-                const res = await uploadStockToCloud();
-                Alert.alert(
-                  t('firebaseSync'),
-                  isRTL
-                    ? `تمت مزامنة ${res.count} منتج مع فايربيس!`
-                    : `${res.count} produits synchronisés avec Firebase !`
-                );
-              } catch (e) {
-                Alert.alert('Firebase', e.message);
-              }
-            }}
-          >
-            <Ionicons name="cloud-done" size={20} color="#ffffff" />
-          </TouchableOpacity>
-        )}
+        {/* Manage Categories Button */}
+        <TouchableOpacity
+          style={styles.categoryManageBtn}
+          onPress={() => setCategoryModalVisible(true)}
+          title="Gérer Catégories"
+        >
+          <Ionicons name="folder-open-outline" size={18} color="#ffffff" />
+          <Text style={styles.btnSmallText}>{isRTL ? 'الأصناف' : 'Catégories'}</Text>
+        </TouchableOpacity>
 
         {/* Add Product Button */}
         <TouchableOpacity style={styles.addBtn} onPress={handleOpenAdd}>
@@ -286,118 +358,151 @@ export default function ProductsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Live Two-Way Sync Bar */}
-      <View style={[styles.syncStatusBanner, isRTL && styles.rowReverse]}>
-        <View style={[styles.syncStatusLeft, isRTL && styles.rowReverse]}>
-          <View
+      {/* Filter and Sort Bar */}
+      <View style={[styles.filterSortRow, isRTL && styles.rowReverse]}>
+        {/* Stock status pills */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterPillsScroll}>
+          <TouchableOpacity
+            style={[styles.stockFilterPill, stockFilter === 'all' && styles.stockFilterPillActive]}
+            onPress={() => setStockFilter('all')}
+          >
+            <Text style={[styles.stockFilterPillText, stockFilter === 'all' && styles.stockFilterPillTextActive]}>
+              {isRTL ? 'الكل' : 'Tous'} ({validProducts.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.stockFilterPill, stockFilter === 'normal' && styles.stockFilterPillActive]}
+            onPress={() => setStockFilter('normal')}
+          >
+            <Text style={[styles.stockFilterPillText, stockFilter === 'normal' && styles.stockFilterPillTextActive]}>
+              {isRTL ? 'متوفر' : 'En stock'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[
-              styles.syncDot,
-              syncStatus === 'sending' || syncStatus === 'receiving'
-                ? styles.syncDotBlue
-                : firebaseConnected
-                ? styles.syncDotGreen
-                : styles.syncDotGray,
+              styles.stockFilterPill,
+              stockFilter === 'low' && styles.stockFilterPillWarningActive,
+              lowStockCount > 0 && styles.stockFilterHasAlert,
             ]}
-          />
-          <Text style={styles.syncStatusText}>
-            {syncStatus === 'sending'
-              ? (isRTL ? 'جارٍ إرسال البيانات إلى السحابة...' : 'Envoi automatique vers Firebase...')
-              : syncStatus === 'receiving'
-              ? (isRTL ? 'جارٍ استقبال التحديثات من السحابة...' : 'Réception en direct de Firebase...')
-              : firebaseConnected
-              ? (isRTL ? 'مزامنة تلقائية نشطة (إرسال واستقبال فوري)' : 'Synchro auto active (Envoi & Réception)')
-              : (isRTL ? 'الوضع المحلي (بدون إنترنت)' : 'Mode Local Hors-ligne')}
-          </Text>
+            onPress={() => setStockFilter('low')}
+          >
+            <Text
+              style={[
+                styles.stockFilterPillText,
+                stockFilter === 'low' && styles.stockFilterPillTextActive,
+                lowStockCount > 0 && { color: '#b45309' },
+              ]}
+            >
+              ⚠️ {isRTL ? 'منخفض' : 'Faible'} ({lowStockCount})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.stockFilterPill,
+              stockFilter === 'out' && styles.stockFilterPillDangerActive,
+              outOfStockCount > 0 && styles.stockFilterHasDanger,
+            ]}
+            onPress={() => setStockFilter('out')}
+          >
+            <Text
+              style={[
+                styles.stockFilterPillText,
+                stockFilter === 'out' && styles.stockFilterPillTextActive,
+                outOfStockCount > 0 && { color: '#dc2626' },
+              ]}
+            >
+              ❌ {isRTL ? 'نفذ' : 'Rupture'} ({outOfStockCount})
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Sort Button Toggle */}
+        <TouchableOpacity
+          style={styles.sortToggleBtn}
+          onPress={() => setShowSortDropdown(!showSortDropdown)}
+        >
+          <Ionicons name="swap-vertical" size={16} color={theme.colors.primary} />
+          <Text style={styles.sortToggleText}>{isRTL ? 'ترتيب' : 'Trier'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Sort Dropdown Options */}
+      {showSortDropdown && (
+        <View style={styles.sortMenu}>
+          {[
+            { key: 'name', label: t('sortNameAZ') },
+            { key: 'priceAsc', label: t('sortPriceAsc') },
+            { key: 'priceDesc', label: t('sortPriceDesc') },
+            { key: 'stockAsc', label: t('sortStockAsc') },
+            { key: 'stockDesc', label: t('sortStockDesc') },
+          ].map((item) => (
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.sortMenuItem, sortBy === item.key && styles.sortMenuItemActive]}
+              onPress={() => {
+                setSortBy(item.key);
+                setShowSortDropdown(false);
+              }}
+            >
+              <Text style={[styles.sortMenuText, sortBy === item.key && styles.sortMenuTextActive]}>
+                {item.label}
+              </Text>
+              {sortBy === item.key && (
+                <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
-        {lastSyncTime && <Text style={styles.syncTimeText}>{lastSyncTime}</Text>}
-      </View>
+      )}
 
-      {/* Stock Health Quick Filter Tabs */}
-      <View style={[styles.stockFilterTabs, isRTL && styles.rowReverse]}>
-        <TouchableOpacity
-          style={[styles.stockFilterPill, stockFilter === 'all' && styles.stockFilterPillActive]}
-          onPress={() => setStockFilter('all')}
-        >
-          <Text style={[styles.stockFilterPillText, stockFilter === 'all' && styles.stockFilterPillTextActive]}>
-            {isRTL ? 'الكل' : 'Tous'} ({validProducts.length})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.stockFilterPill, stockFilter === 'normal' && styles.stockFilterPillActive]}
-          onPress={() => setStockFilter('normal')}
-        >
-          <Text style={[styles.stockFilterPillText, stockFilter === 'normal' && styles.stockFilterPillTextActive]}>
-            {isRTL ? 'متوفر' : 'Normal'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.stockFilterPill,
-            stockFilter === 'low' && styles.stockFilterPillWarningActive,
-            lowStockCount > 0 && styles.stockFilterHasAlert,
-          ]}
-          onPress={() => setStockFilter('low')}
-        >
-          <Text
-            style={[
-              styles.stockFilterPillText,
-              stockFilter === 'low' && styles.stockFilterPillTextActive,
-              lowStockCount > 0 && { color: '#b45309' },
-            ]}
-          >
-            ⚠️ {isRTL ? 'مخزون منخفض' : 'Faible'} ({lowStockCount})
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.stockFilterPill,
-            stockFilter === 'out' && styles.stockFilterPillDangerActive,
-            outOfStockCount > 0 && styles.stockFilterHasDanger,
-          ]}
-          onPress={() => setStockFilter('out')}
-        >
-          <Text
-            style={[
-              styles.stockFilterPillText,
-              stockFilter === 'out' && styles.stockFilterPillTextActive,
-              outOfStockCount > 0 && { color: '#dc2626' },
-            ]}
-          >
-            ❌ {isRTL ? 'نفذ' : 'Rupture'} ({outOfStockCount})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Category Pills */}
+      {/* Category Filter Chips */}
       <View style={styles.categoryContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+          <TouchableOpacity
+            style={[
+              styles.categoryChip,
+              selectedCategory === 'All' && styles.categoryChipActive,
+            ]}
+            onPress={() => setSelectedCategory('All')}
+          >
+            <Text
+              style={[
+                styles.categoryChipText,
+                selectedCategory === 'All' && styles.categoryChipTextActive,
+              ]}
+            >
+              {t('allCategories')}
+            </Text>
+          </TouchableOpacity>
+
           {categories.map((cat) => (
             <TouchableOpacity
-              key={cat}
+              key={cat.id}
               style={[
                 styles.categoryChip,
-                selectedCategory === cat && styles.categoryChipActive,
+                (selectedCategory === cat.nameFr || selectedCategory === cat.nameAr) && styles.categoryChipActive,
               ]}
-              onPress={() => setSelectedCategory(cat)}
+              onPress={() => setSelectedCategory(isRTL ? cat.nameAr || cat.nameFr : cat.nameFr)}
             >
+              <View style={[styles.catColorDot, { backgroundColor: cat.color || theme.colors.primary }]} />
               <Text
                 style={[
                   styles.categoryChipText,
-                  selectedCategory === cat && styles.categoryChipTextActive,
+                  (selectedCategory === cat.nameFr || selectedCategory === cat.nameAr) && styles.categoryChipTextActive,
                 ]}
               >
-                {cat === 'All' ? t('allCategories') : cat}
+                {isRTL ? cat.nameAr || cat.nameFr : cat.nameFr}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
 
-      {/* Empty State */}
-      {filteredProducts.length === 0 ? (
+      {/* Product List */}
+      {processedProducts.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Ionicons name="cube-outline" size={54} color={theme.colors.textMuted} />
           <Text style={styles.emptyTitle}>
@@ -405,28 +510,18 @@ export default function ProductsScreen() {
           </Text>
           <Text style={styles.emptySub}>
             {isRTL
-              ? 'اضغط على زر الإضافة (+) لإنشاء منتج جديد وحفظه في فايربيس.'
-              : 'Cliquez sur Ajouter (+) pour enregistrer vos articles dans Firebase.'}
+              ? 'اضغط على زر الإضافة (+) لإنشاء منتج جديد وحفظه مباشرة.'
+              : 'Cliquez sur Ajouter (+) pour enregistrer un article dans votre inventaire.'}
           </Text>
 
-          <View style={styles.emptyActionsRow}>
-            <TouchableOpacity style={styles.emptyAddBtn} onPress={handleOpenAdd}>
-              <Ionicons name="add-circle" size={20} color="#ffffff" />
-              <Text style={styles.emptyAddBtnText}>{t('addProduct')}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.emptyRestoreBtn} onPress={refreshAllFromFirebase}>
-              <Ionicons name="refresh" size={18} color={theme.colors.secondary} />
-              <Text style={styles.emptyRestoreBtnText}>
-                {isRTL ? 'تحديث من السحابة' : 'Actualiser Firebase'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={styles.emptyAddBtn} onPress={handleOpenAdd}>
+            <Ionicons name="add-circle" size={20} color="#ffffff" />
+            <Text style={styles.emptyAddBtnText}>{t('addProduct')}</Text>
+          </TouchableOpacity>
         </View>
       ) : (
-        /* Product List */
         <FlatList
-          data={filteredProducts}
+          data={processedProducts}
           keyExtractor={(item) => String(item.id)}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
@@ -467,28 +562,25 @@ export default function ProductsScreen() {
                     <TouchableOpacity
                       style={styles.quickStockBtn}
                       onPress={() => handleQuickStock(item, 5)}
-                      title="+5"
                     >
                       <Text style={styles.quickStockBtnText}>+5</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.quickStockBtn}
                       onPress={() => handleQuickStock(item, 10)}
-                      title="+10"
                     >
                       <Text style={styles.quickStockBtnText}>+10</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.quickStockBtn, styles.quickStockBtnMinus]}
                       onPress={() => handleQuickStock(item, -1)}
-                      title="-1"
                     >
                       <Text style={styles.quickStockBtnMinusText}>-1</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
 
-                {/* Stock Badge & Edit/Delete Controls */}
+                {/* Stock Status Badge & Edit/Delete Controls */}
                 <View style={styles.stockActionsCol}>
                   <View
                     style={[
@@ -528,7 +620,7 @@ export default function ProductsScreen() {
         />
       )}
 
-      {/* Add / Edit Product Modal */}
+      {/* Add / Edit Product Modal (Closes Directly on Validation) */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -559,7 +651,6 @@ export default function ProductsScreen() {
                 <TouchableOpacity
                   style={styles.genBarcodeBtn}
                   onPress={() => setBarcode(Math.floor(6130000000 + Math.random() * 999999).toString())}
-                  title="Générer EAN-13"
                 >
                   <Ionicons name="refresh" size={18} color="#ffffff" />
                   <Text style={styles.genBtnText}>{isRTL ? 'توليد' : 'Générer'}</Text>
@@ -568,18 +659,17 @@ export default function ProductsScreen() {
                 <TouchableOpacity
                   style={styles.scanCodeModalBtn}
                   onPress={() => setScannerModalVisible(true)}
-                  title="Scanner"
                 >
                   <Ionicons name="camera-outline" size={18} color="#ffffff" />
                 </TouchableOpacity>
               </View>
 
-              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('productName')} (Français)</Text>
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('productName')} (Français) *</Text>
               <TextInput
                 style={[styles.inputBox, isRTL && styles.textRight]}
                 value={nameFr}
                 onChangeText={setNameFr}
-                placeholder="Ex: Eau Minérale 1.5L"
+                placeholder="Ex: Écran Protection Verre Trempé"
                 placeholderTextColor={theme.colors.textMuted}
               />
 
@@ -588,18 +678,33 @@ export default function ProductsScreen() {
                 style={[styles.inputBox, { textAlign: 'right' }]}
                 value={nameAr}
                 onChangeText={setNameAr}
-                placeholder="مثال: ماء معدني 1.5 لتر"
+                placeholder="مثال: شاشة حماية زجاجية"
                 placeholderTextColor={theme.colors.textMuted}
               />
 
-              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('category')}</Text>
-              <TextInput
-                style={[styles.inputBox, isRTL && styles.textRight]}
-                value={category}
-                onChangeText={setCategory}
-                placeholder="Alimentation / Boissons / etc."
-                placeholderTextColor={theme.colors.textMuted}
-              />
+              {/* Category Picker with Fast Create */}
+              <View style={[styles.categoryHeaderRow, isRTL && styles.rowReverse]}>
+                <Text style={styles.inputLabel}>{t('category')}</Text>
+                <TouchableOpacity onPress={() => setCategoryModalVisible(true)}>
+                  <Text style={styles.addCategoryLink}>+ {t('newCategory')}</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                {categories.map((c) => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[
+                      styles.modalCatChip,
+                      category === c.nameFr && styles.modalCatChipActive,
+                    ]}
+                    onPress={() => setCategory(c.nameFr)}
+                  >
+                    <Text style={[styles.modalCatChipText, category === c.nameFr && styles.modalCatChipTextActive]}>
+                      {isRTL ? c.nameAr || c.nameFr : c.nameFr}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
 
               <View style={[styles.priceInputRow, isRTL && styles.rowReverse]}>
                 <View style={{ flex: 1, marginRight: 8 }}>
@@ -615,7 +720,7 @@ export default function ProductsScreen() {
                 </View>
 
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('sellPrice')}</Text>
+                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('sellPrice')} *</Text>
                   <TextInput
                     style={[styles.inputBox, isRTL && styles.textRight]}
                     keyboardType="numeric"
@@ -654,6 +759,7 @@ export default function ProductsScreen() {
               </View>
             </ScrollView>
 
+            {/* Direct Save Button (Validates & Exits Immediately) */}
             <TouchableOpacity style={styles.saveBtn} onPress={handleSaveProduct}>
               <Text style={styles.saveBtnText}>{t('save')}</Text>
             </TouchableOpacity>
@@ -661,33 +767,109 @@ export default function ProductsScreen() {
         </View>
       </Modal>
 
-      {/* Quick Barcode Scanner for Add/Edit Form */}
+      {/* Categories Management Space Modal */}
+      <Modal visible={categoryModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.categoryModalCard}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="folder-open" size={22} color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.modalTitle}>{t('manageCategories')}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setCategoryModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Create Category Form */}
+            <View style={styles.newCatBox}>
+              <Text style={[styles.newCatTitle, isRTL && styles.textRight]}>{t('newCategory')}</Text>
+              <View style={[styles.newCatRow, isRTL && styles.rowReverse]}>
+                <TextInput
+                  style={[styles.inputBox, { flex: 1, marginRight: 6 }, isRTL && styles.textRight]}
+                  placeholder={t('categoryNameFr')}
+                  value={newCatNameFr}
+                  onChangeText={setNewCatNameFr}
+                />
+                <TextInput
+                  style={[styles.inputBox, { flex: 1, textAlign: 'right' }]}
+                  placeholder={t('categoryNameAr')}
+                  value={newCatNameAr}
+                  onChangeText={setNewCatNameAr}
+                />
+              </View>
+
+              <TouchableOpacity style={styles.createCatBtn} onPress={handleCreateCategory}>
+                <Ionicons name="add" size={18} color="#ffffff" />
+                <Text style={styles.createCatBtnText}>{t('addCategory')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Existing Categories List */}
+            <Text style={[styles.existingCatsTitle, isRTL && styles.textRight]}>
+              {isRTL ? 'الأصناف المسجلة:' : 'Catégories enregistrées :'}
+            </Text>
+            <ScrollView style={{ maxHeight: 240 }}>
+              {categories.map((c) => {
+                const count = validProducts.filter((p) => p.category === c.nameFr || p.category === c.nameAr).length;
+                return (
+                  <View key={c.id} style={[styles.catListItem, isRTL && styles.rowReverse]}>
+                    <View style={[styles.catListItemLeft, isRTL && styles.rowReverse]}>
+                      <View style={[styles.catColorCircle, { backgroundColor: c.color || theme.colors.primary }]} />
+                      <View style={isRTL && styles.alignRight}>
+                        <Text style={styles.catItemName}>{c.nameFr}</Text>
+                        {c.nameAr && <Text style={styles.catItemSub}>{c.nameAr}</Text>}
+                      </View>
+                    </View>
+
+                    <View style={styles.catListItemRight}>
+                      <Text style={styles.catCountBadge}>{count} {isRTL ? 'منتجات' : 'produits'}</Text>
+                      <TouchableOpacity
+                        style={styles.delCatBtn}
+                        onPress={() => handleDeleteCategory(c.id)}
+                      >
+                        <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Barcode Scanner Modal */}
       <Modal visible={scannerModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.scanHelperCard}>
             <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
-              <Text style={styles.modalTitle}>{isRTL ? 'مسح كود بار' : 'Scanner Code-barres'}</Text>
+              <Text style={styles.modalTitle}>{isRTL ? 'مسح الباركود' : 'Scanner Code-barres'}</Text>
               <TouchableOpacity onPress={() => setScannerModalVisible(false)}>
                 <Ionicons name="close" size={24} color={theme.colors.text} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.scanViewfinder}>
-              <Ionicons name="scan-outline" size={60} color="#22c55e" />
+              <Ionicons name="scan-outline" size={64} color="#22c55e" />
               <Text style={styles.scanViewfinderText}>
-                {isRTL ? 'اكتب أو امسح الباركود لحفظه للمنتج' : 'Scannez ou entrez le code pour ce produit'}
+                {isRTL ? 'اكتب أو امسح الباركود باستخدام القارئ' : 'Scannez au lecteur ou entrez le code ci-dessous'}
               </Text>
             </View>
 
             <TextInput
-              style={[styles.inputBox, { marginTop: 12 }, isRTL && styles.textRight]}
+              style={[styles.inputBox, { marginTop: 14 }, isRTL && styles.textRight]}
               placeholder="Ex: 613123456789"
               value={scannedCodeInput}
               onChangeText={setScannedCodeInput}
               autoFocus
               onSubmitEditing={() => {
                 if (scannedCodeInput.trim()) {
-                  setBarcode(scannedCodeInput.trim());
+                  if (modalVisible) {
+                    setBarcode(scannedCodeInput.trim());
+                  } else {
+                    setSearchQuery(scannedCodeInput.trim());
+                  }
                   setScannedCodeInput('');
                   setScannerModalVisible(false);
                 }
@@ -698,13 +880,17 @@ export default function ProductsScreen() {
               style={styles.saveBtn}
               onPress={() => {
                 if (scannedCodeInput.trim()) {
-                  setBarcode(scannedCodeInput.trim());
+                  if (modalVisible) {
+                    setBarcode(scannedCodeInput.trim());
+                  } else {
+                    setSearchQuery(scannedCodeInput.trim());
+                  }
                   setScannedCodeInput('');
                   setScannerModalVisible(false);
                 }
               }}
             >
-              <Text style={styles.saveBtnText}>{isRTL ? 'تأكيد الرمز' : 'Valider ce code'}</Text>
+              <Text style={styles.saveBtnText}>{isRTL ? 'تأكيد' : 'Valider'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -727,6 +913,18 @@ const styles = StyleSheet.create({
   alignRight: {
     alignItems: 'flex-end',
   },
+  toastBanner: {
+    backgroundColor: '#10b981',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -748,95 +946,59 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     fontSize: theme.typography.regular,
   },
-  csvExportBtn: {
+  scanBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+    elevation: 2,
+  },
+  categoryManageBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#059669',
-    height: 40,
+    backgroundColor: '#6366f1',
+    paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: theme.borderRadius.full,
     marginRight: 6,
     elevation: 2,
   },
-  csvBtnText: {
+  btnSmallText: {
     color: '#ffffff',
     fontSize: 11,
     fontWeight: 'bold',
     marginLeft: 4,
   },
-  cloudSyncBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: '#ea580c',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 6,
-    elevation: 2,
-  },
   addBtn: {
     width: 44,
     height: 44,
-    borderRadius: theme.borderRadius.full,
+    borderRadius: 22,
     backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 3,
   },
-  syncStatusBanner: {
+  filterSortRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
     marginHorizontal: theme.spacing.md,
-    marginBottom: 6,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 6,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    marginBottom: 8,
   },
-  syncStatusLeft: {
+  filterPillsScroll: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  syncDotGreen: {
-    backgroundColor: theme.colors.success,
-  },
-  syncDotBlue: {
-    backgroundColor: theme.colors.secondary,
-  },
-  syncDotGray: {
-    backgroundColor: theme.colors.textMuted,
-  },
-  syncStatusText: {
-    fontSize: 11,
-    color: theme.colors.textSecondary,
-    fontWeight: '600',
-  },
-  syncTimeText: {
-    fontSize: 10,
-    color: theme.colors.textMuted,
-  },
-  stockFilterTabs: {
-    flexDirection: 'row',
-    paddingHorizontal: theme.spacing.md,
-    marginBottom: 6,
   },
   stockFilterPill: {
-    paddingVertical: 4,
+    paddingVertical: 5,
     paddingHorizontal: 10,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.colors.surface,
+    marginRight: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    marginRight: 6,
   },
   stockFilterPillActive: {
     backgroundColor: theme.colors.primary,
@@ -850,12 +1012,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
     borderColor: '#ef4444',
   },
-  stockFilterHasAlert: {
-    borderColor: '#f59e0b',
-  },
-  stockFilterHasDanger: {
-    borderColor: '#ef4444',
-  },
   stockFilterPillText: {
     fontSize: 11,
     fontWeight: '600',
@@ -864,18 +1020,72 @@ const styles = StyleSheet.create({
   stockFilterPillTextActive: {
     color: '#ffffff',
   },
+  stockFilterHasAlert: {
+    borderColor: '#f59e0b',
+  },
+  stockFilterHasDanger: {
+    borderColor: '#ef4444',
+  },
+  sortToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    marginLeft: 4,
+  },
+  sortToggleText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+    marginLeft: 4,
+  },
+  sortMenu: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: theme.spacing.md,
+    marginBottom: 8,
+    borderRadius: theme.borderRadius.md,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    elevation: 3,
+  },
+  sortMenuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.sm,
+  },
+  sortMenuItemActive: {
+    backgroundColor: theme.colors.primaryLight,
+  },
+  sortMenuText: {
+    fontSize: 12,
+    color: theme.colors.text,
+  },
+  sortMenuTextActive: {
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
   categoryContainer: {
-    marginBottom: theme.spacing.sm,
+    marginBottom: 6,
   },
   categoryScroll: {
     paddingHorizontal: theme.spacing.md,
   },
   categoryChip: {
-    paddingVertical: 5,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.full,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    marginRight: theme.spacing.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.full,
+    marginRight: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -883,155 +1093,19 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
   },
+  catColorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
   categoryChipText: {
-    fontSize: theme.typography.small,
+    fontSize: 12,
     color: theme.colors.textSecondary,
     fontWeight: '600',
   },
   categoryChipTextActive: {
     color: '#ffffff',
-  },
-  listContent: {
-    padding: theme.spacing.md,
-    paddingBottom: 40,
-  },
-  productItemCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    elevation: 1,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  productDetails: {
-    flex: 1,
-  },
-  badgeLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  categoryLabel: {
-    fontSize: 10,
-    backgroundColor: theme.colors.background,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: theme.borderRadius.sm,
-    color: theme.colors.textSecondary,
-    marginRight: 6,
-  },
-  barcodeLabelBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  barcodeLabel: {
-    fontSize: 11,
-    color: theme.colors.textMuted,
-    marginLeft: 2,
-  },
-  productTitle: {
-    fontSize: theme.typography.regular,
-    fontWeight: 'bold',
-    color: theme.colors.text,
-  },
-  priceStatsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  sellPriceText: {
-    fontSize: theme.typography.medium,
-    fontWeight: 'bold',
-    color: theme.colors.primary,
-    marginRight: 8,
-  },
-  buyPriceText: {
-    fontSize: theme.typography.small,
-    color: theme.colors.textMuted,
-    marginRight: 8,
-  },
-  profitText: {
-    fontSize: theme.typography.small,
-    color: theme.colors.secondary,
-    fontWeight: '600',
-  },
-  quickStockRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  quickStockLabel: {
-    fontSize: 11,
-    color: theme.colors.textMuted,
-    marginRight: 6,
-  },
-  quickStockBtn: {
-    backgroundColor: '#dbeafe',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: theme.borderRadius.sm,
-    marginRight: 6,
-  },
-  quickStockBtnText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#1d4ed8',
-  },
-  quickStockBtnMinus: {
-    backgroundColor: '#fee2e2',
-  },
-  quickStockBtnMinusText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#dc2626',
-  },
-  stockActionsCol: {
-    alignItems: 'flex-end',
-    marginLeft: theme.spacing.md,
-  },
-  stockStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: theme.borderRadius.full,
-    marginBottom: 8,
-  },
-  bgSuccess: {
-    backgroundColor: theme.colors.successLight,
-  },
-  bgWarning: {
-    backgroundColor: theme.colors.warningLight,
-  },
-  bgDanger: {
-    backgroundColor: theme.colors.dangerLight,
-  },
-  stockStatusText: {
-    fontSize: 11,
-    fontWeight: 'bold',
-  },
-  textSuccess: {
-    color: theme.colors.success,
-  },
-  textWarning: {
-    color: theme.colors.warning,
-  },
-  textDanger: {
-    color: theme.colors.danger,
-  },
-  btnRow: {
-    flexDirection: 'row',
-  },
-  actionCircleBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.secondaryLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 6,
   },
   emptyContainer: {
     backgroundColor: theme.colors.surface,
@@ -1054,42 +1128,167 @@ const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: theme.spacing.lg,
   },
-  emptyActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   emptyAddBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.primary,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
     borderRadius: theme.borderRadius.full,
-    marginRight: 8,
   },
   emptyAddBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 12,
+    fontSize: 13,
     marginLeft: 6,
   },
-  emptyRestoreBtn: {
+  listContent: {
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: 30,
+  },
+  productItemCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.secondaryLight,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.full,
+    elevation: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  emptyRestoreBtnText: {
-    color: theme.colors.secondary,
+  productDetails: {
+    flex: 1,
+  },
+  badgeLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  categoryLabel: {
+    fontSize: 10,
     fontWeight: 'bold',
-    fontSize: 12,
+    color: theme.colors.secondary,
+    backgroundColor: theme.colors.secondaryLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.sm,
+    marginRight: 6,
+  },
+  barcodeLabelBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  barcodeLabel: {
+    fontSize: 10,
+    color: theme.colors.textMuted,
+    marginLeft: 2,
+  },
+  productTitle: {
+    fontSize: theme.typography.medium,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  priceStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  sellPriceText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
+  buyPriceText: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginHorizontal: 6,
+  },
+  profitText: {
+    fontSize: 11,
+    color: '#059669',
+    fontWeight: '600',
+  },
+  quickStockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  quickStockLabel: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginRight: 6,
+  },
+  quickStockBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.primaryLight,
+    marginRight: 4,
+  },
+  quickStockBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
+  quickStockBtnMinus: {
+    backgroundColor: theme.colors.dangerLight,
+  },
+  quickStockBtnMinusText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: theme.colors.danger,
+  },
+  stockActionsCol: {
+    alignItems: 'flex-end',
+    marginLeft: 10,
+  },
+  stockStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: theme.borderRadius.full,
+    marginBottom: 8,
+  },
+  stockStatusText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  bgSuccess: {
+    backgroundColor: theme.colors.successLight,
+  },
+  textSuccess: {
+    color: theme.colors.success,
+  },
+  bgWarning: {
+    backgroundColor: theme.colors.warningLight,
+  },
+  textWarning: {
+    color: '#b45309',
+  },
+  bgDanger: {
+    backgroundColor: theme.colors.dangerLight,
+  },
+  textDanger: {
+    color: theme.colors.danger,
+  },
+  btnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionCircleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginLeft: 6,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -1101,7 +1300,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
     maxHeight: '90%',
-    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1113,7 +1311,7 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   modalTitle: {
-    fontSize: theme.typography.header,
+    fontSize: theme.typography.medium,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
@@ -1121,7 +1319,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   modalScroll: {
-    maxHeight: 420,
+    maxHeight: 460,
   },
   inputLabel: {
     fontSize: theme.typography.small,
@@ -1147,11 +1345,10 @@ const styles = StyleSheet.create({
   genBarcodeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: theme.colors.secondary,
     paddingHorizontal: 10,
     height: 44,
     borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.secondary,
-    justifyContent: 'center',
     marginLeft: 6,
   },
   genBtnText: {
@@ -1161,16 +1358,51 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   scanCodeModalBtn: {
+    backgroundColor: theme.colors.primary,
     width: 44,
     height: 44,
     borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 6,
   },
+  categoryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  addCategoryLink: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+  },
+  modalCatChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#f1f5f9',
+    marginRight: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  modalCatChipActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  modalCatChipText: {
+    fontSize: 12,
+    color: theme.colors.text,
+    fontWeight: '500',
+  },
+  modalCatChipTextActive: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
   priceInputRow: {
     flexDirection: 'row',
+    alignItems: 'center',
   },
   saveBtn: {
     backgroundColor: theme.colors.primary,
@@ -1185,25 +1417,110 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: theme.typography.medium,
   },
+  categoryModalCard: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+    maxHeight: '85%',
+  },
+  newCatBox: {
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    marginBottom: 16,
+  },
+  newCatTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginBottom: 8,
+  },
+  newCatRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  createCatBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 8,
+    borderRadius: theme.borderRadius.md,
+  },
+  createCatBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  existingCatsTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.textSecondary,
+    marginBottom: 8,
+  },
+  catListItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  catListItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  catColorCircle: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  catItemName: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  catItemSub: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+  },
+  catListItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  catCountBadge: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginRight: 10,
+  },
+  delCatBtn: {
+    padding: 4,
+  },
   scanHelperCard: {
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 420,
     backgroundColor: '#ffffff',
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
   },
   scanViewfinder: {
-    height: 120,
+    height: 150,
     backgroundColor: '#0f172a',
     borderRadius: theme.borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 10,
+    padding: 16,
   },
   scanViewfinderText: {
     color: '#94a3b8',
-    fontSize: 11,
-    marginTop: 6,
+    fontSize: 12,
     textAlign: 'center',
+    marginTop: 8,
   },
 });

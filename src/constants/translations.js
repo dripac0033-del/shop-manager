@@ -5,9 +5,10 @@ export const translations = {
     pos: 'Point de Vente',
     products: 'Produits & Stock',
     customers: 'Clients & Crédit',
+    servicesRepairs: 'Services & Réparations',
     suppliers: 'Fournisseurs',
     expenses: 'Dépenses',
-    reports: 'Statistiques',
+    reports: 'Statistiques & Ventes',
     settings: 'Paramètres',
 
     // Dashboard
@@ -25,9 +26,9 @@ export const translations = {
     itemsCount: "articles",
 
     // POS / Caisse
-    searchProduct: "Rechercher un produit ou scanner...",
+    searchProduct: "Rechercher ou scanner...",
     scanBarcode: "Scanner Code-barres",
-    allCategories: "Tous",
+    allCategories: "Toutes les catégories",
     cart: "Panier",
     emptyCart: "Le panier est vide",
     total: "Total",
@@ -49,11 +50,14 @@ export const translations = {
     printReceipt: "Imprimer le Reçu",
     close: "Fermer",
     receipt: "Reçu de Caisse",
+    scanCamera: "Scanner Caméra",
 
     // Products / Stock
     productName: "Nom du Produit",
     barcode: "Code-barres",
     category: "Catégorie",
+    newCategory: "Nouvelle Catégorie",
+    manageCategories: "Gérer Catégories",
     buyPrice: "Prix d'Achat",
     sellPrice: "Prix de Vente",
     stockQuantity: "Quantité en Stock",
@@ -66,7 +70,21 @@ export const translations = {
     inStock: "En stock",
     outOfStock: "Rupture de stock",
     lowStockBadge: "Stock faible",
-    searchByNameOrBarcode: "Recherche par nom ou code-barres...",
+    searchByNameOrBarcode: "Recherche par nom, référence ou code...",
+    sortBy: "Trier par",
+    sortNameAZ: "Nom (A-Z)",
+    sortPriceAsc: "Prix croissant",
+    sortPriceDesc: "Prix décroissant",
+    sortStockAsc: "Stock croissant",
+    sortStockDesc: "Stock décroissant",
+    allStock: "Tout le stock",
+
+    // Categories
+    categories: "Catégories",
+    categoryNameFr: "Nom de la Catégorie (FR)",
+    categoryNameAr: "Nom de la Catégorie (AR)",
+    categoryDescription: "Description",
+    addCategory: "Ajouter Catégorie",
 
     // Customers & Debts
     customerList: "Liste des Clients",
@@ -81,6 +99,49 @@ export const translations = {
     noDebt: "Aucune dette",
     callCustomer: "Appeler",
     shareDebt: "Partager Situation",
+
+    // Sales History & Returns
+    salesHistory: "Historique des Ventes",
+    saleDetails: "Détails de la Vente",
+    processReturn: "Faire un retour",
+    returnDate: "Date de retour",
+    returnReason: "Motif du retour",
+    returnedQuantity: "Quantité retournée",
+    refundAmount: "Montant remboursé",
+    saleStatus: "Statut",
+    statusCompleted: "Complétée",
+    statusReturned: "Retournée",
+    statusPartialReturn: "Retour partiel",
+    confirmReturn: "Valider le retour & réintégrer au stock",
+
+    // Services
+    services: "Services",
+    newService: "Nouveau Service",
+    serviceName: "Nom du Service",
+    serviceCategory: "Catégorie de Service",
+    serviceDescription: "Description du Service",
+    servicePrice: "Prix du Service (DZD)",
+    addToSale: "Facturer ce service",
+
+    // Repairs (Réparations)
+    repairs: "Réparations",
+    newRepair: "Nouveau Dossier Réparation",
+    ticketNumber: "N° Ticket",
+    deviceModel: "Appareil & Modèle",
+    issueDescription: "Description de la panne / Problème",
+    repairStatus: "Statut de réparation",
+    statusReceived: "Reçu",
+    statusInProgress: "En cours",
+    statusWaitingParts: "En attente pièce",
+    statusRepaired: "Réparé (Prêt)",
+    statusDelivered: "Livré / Clôturé",
+    statusCancelled: "Annulé",
+    estimatedCost: "Coût estimé (DZD)",
+    finalCost: "Coût final (DZD)",
+    depositPaid: "Acompte versé (DZD)",
+    dateReceived: "Date de réception",
+    dateDelivered: "Date de livraison / retour",
+    technicianNotes: "Notes du technicien",
 
     // Expenses
     expenseTitle: "Motif de la dépense",
@@ -105,7 +166,7 @@ export const translations = {
     topSellingProducts: "Produits les plus vendus",
     salesTrend: "Aperçu des performances",
 
-    // Settings
+    // Settings & Users
     language: "Langue de l'application",
     currency: "Symbole de la Monnaie",
     storeInfo: "Informations du Magasin",
@@ -114,18 +175,25 @@ export const translations = {
     storeAddress: "Adresse du Magasin",
     receiptFooter: "Message de fin de ticket",
     dataManagement: "Gestion des Données",
-    resetDemoData: "Réinitialiser avec Données de Démonstration",
-    exportData: "Sauvegarder les données (Export)",
+    usersManagement: "Gestion des Utilisateurs",
+    createUser: "Créer un utilisateur",
+    username: "Identifiant",
+    password: "Mot de passe",
+    role: "Rôle",
+    admin: "Administrateur",
+    cashier: "Caissier",
+    technician: "Technicien",
+    sessionExpired: "Session expirée par sécurité. Veuillez vous reconnecter.",
 
     // Firebase
     firebaseSync: "Synchronisation Cloud Firebase",
     firebaseConfig: "Configuration Firebase",
     firebaseConnected: "Connecté au Cloud (Temps Réel)",
-    firebaseDisconnected: "Mode Local Hors-ligne (Non configuré)",
+    firebaseDisconnected: "Mode Local Hors-ligne (Sauvegardé localement)",
     pushToCloud: "Envoyer le Stock vers Firebase",
     pullFromCloud: "Récupérer le Stock depuis Firebase",
     testConnection: "Tester & Sauvegarder la Connexion",
-    syncSuccess: "Stock synchronisé avec Firebase avec succès !",
+    syncSuccess: "Données synchronisées avec Firebase avec succès !",
     syncing: "Synchronisation en cours...",
   },
 
@@ -135,9 +203,10 @@ export const translations = {
     pos: 'نقطة البيع (الكاسة)',
     products: 'المنتجات والمخزون',
     customers: 'الزبائن والديون',
+    servicesRepairs: 'الخدمات والتصليح',
     suppliers: 'الموردون',
     expenses: 'المصاريف',
-    reports: 'التقارير والأرباح',
+    reports: 'التقارير والمبيعات',
     settings: 'الإعدادات',
 
     // Dashboard
@@ -157,7 +226,7 @@ export const translations = {
     // POS / Caisse
     searchProduct: "ابحث عن منتج أو امسح الباركود...",
     scanBarcode: "مسح الباركود",
-    allCategories: "الكل",
+    allCategories: "جميع الأصناف",
     cart: "سلة المشتريات",
     emptyCart: "السلة فارغة",
     total: "المجموع",
@@ -179,11 +248,14 @@ export const translations = {
     printReceipt: "طباعة الوصل",
     close: "إغلاق",
     receipt: "وصل الدفع (تيكيت)",
+    scanCamera: "مسح بالكاميرا",
 
     // Products / Stock
     productName: "اسم المنتج",
     barcode: "الباركود",
     category: "الصنف",
+    newCategory: "صنف جديد",
+    manageCategories: "إدارة الأصناف",
     buyPrice: "سعر الشراء",
     sellPrice: "سعر البيع",
     stockQuantity: "الكمية في المخزن",
@@ -196,7 +268,21 @@ export const translations = {
     inStock: "متوفر",
     outOfStock: "نفذ من المخزن",
     lowStockBadge: "مخزون منخفض",
-    searchByNameOrBarcode: "البحث بالاسم أو الباركود...",
+    searchByNameOrBarcode: "البحث بالاسم أو المرجع أو الباركود...",
+    sortBy: "ترتيب حسب",
+    sortNameAZ: "الاسم (أ-ي)",
+    sortPriceAsc: "السعر تصاعدي",
+    sortPriceDesc: "السعر تنازلي",
+    sortStockAsc: "الكمية تصاعدي",
+    sortStockDesc: "الكمية تنازلي",
+    allStock: "كل المخزون",
+
+    // Categories
+    categories: "الأصناف",
+    categoryNameFr: "اسم الصنف (فرنسي)",
+    categoryNameAr: "اسم الصنف (عربي)",
+    categoryDescription: "الوصف",
+    addCategory: "إضافة صنف",
 
     // Customers & Debts
     customerList: "قائمة الزبائن",
@@ -211,6 +297,49 @@ export const translations = {
     noDebt: "لا يوجد دين",
     callCustomer: "اتصال",
     shareDebt: "مشاركة كشف الحساب",
+
+    // Sales History & Returns
+    salesHistory: "سجل المبيعات",
+    saleDetails: "تفاصيل عملية البيع",
+    processReturn: "إجراء إرجاع سلع",
+    returnDate: "تاريخ الإرجاع",
+    returnReason: "سبب الإرجاع",
+    returnedQuantity: "الكمية المرجعة",
+    refundAmount: "المبلغ المسترجع",
+    saleStatus: "حالة البيع",
+    statusCompleted: "مكتملة",
+    statusReturned: "مرجعة كلياً",
+    statusPartialReturn: "إرجاع جزئي",
+    confirmReturn: "تأكيد الإرجاع وإعادة للمخزون",
+
+    // Services
+    services: "الخدمات",
+    newService: "خدمة جديدة",
+    serviceName: "اسم الخدمة",
+    serviceCategory: "فئة الخدمة",
+    serviceDescription: "وصف الخدمة",
+    servicePrice: "سعر الخدمة (د.ج)",
+    addToSale: "إضافة للبيع",
+
+    // Repairs
+    repairs: "الصيانة والتصليح",
+    newRepair: "وصل صيانة جديد",
+    ticketNumber: "رقم التذكرة",
+    deviceModel: "الجهاز والموديل",
+    issueDescription: "وصف العطل / المشكل",
+    repairStatus: "حالة التصليح",
+    statusReceived: "تم الاستلام",
+    statusInProgress: "قيد الصيانة",
+    statusWaitingParts: "في انتظار قطع غيار",
+    statusRepaired: "تم التصليح (جاهز)",
+    statusDelivered: "تم التسليم / مغلق",
+    statusCancelled: "ملغى",
+    estimatedCost: "التكلفة التقديرية (د.ج)",
+    finalCost: "التكلفة النهائية (د.ج)",
+    depositPaid: "العربون المدفوع (د.ج)",
+    dateReceived: "تاريخ الاستلام",
+    dateDelivered: "تاريخ التسليم / الإرجاع",
+    technicianNotes: "ملاحظات التقني",
 
     // Expenses
     expenseTitle: "سبب المصروف",
@@ -235,7 +364,7 @@ export const translations = {
     topSellingProducts: "المنتجات الأكثر مبيعاً",
     salesTrend: "مؤشرات الأداء",
 
-    // Settings
+    // Settings & Users
     language: "لغة التطبيق",
     currency: "رمز العملة",
     storeInfo: "معلومات المحل",
@@ -244,18 +373,25 @@ export const translations = {
     storeAddress: "عنوان المحل",
     receiptFooter: "رسالة أسفل الوصل",
     dataManagement: "إدارة البيانات",
-    resetDemoData: "استعادة البيانات التجريبية",
-    exportData: "نسخ احتياطي للبيانات",
+    usersManagement: "إدارة المستخدمين",
+    createUser: "إنشاء مستخدم جديد",
+    username: "اسم المستخدم",
+    password: "كلمة المرور",
+    role: "الصلاحية",
+    admin: "مسؤول (Admin)",
+    cashier: "صراف (Caissier)",
+    technician: "تقني (Technicien)",
+    sessionExpired: "انتهت صلاحية الجلسة لأسباب أمنية. يرجى تسجيل الدخول مجدداً.",
 
     // Firebase
     firebaseSync: "مزامنة سحابة فايربيس (Firebase)",
     firebaseConfig: "إعدادات فايربيس (Firebase)",
     firebaseConnected: "متصل بالسحابة (تزامن فوري)",
-    firebaseDisconnected: "الوضع المحلي بدون إنترنت (غير مهيأ)",
+    firebaseDisconnected: "الوضع المحلي (محفوظ بأمان محلياً)",
     pushToCloud: "رفع المخزون إلى فايربيس",
     pullFromCloud: "تحميل المخزون من فايربيس",
     testConnection: "اختبار وحفظ الاتصال",
-    syncSuccess: "تمت مزامنة المخزون مع فايربيس بنجاح!",
+    syncSuccess: "تمت مزامنة البيانات مع فايربيس بنجاح!",
     syncing: "جارٍ المزامنة...",
   }
 };

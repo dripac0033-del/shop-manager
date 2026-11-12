@@ -29,6 +29,8 @@ export default function SettingsScreen() {
     sales = [],
     customers = [],
     expenses = [],
+    services = [],
+    repairs = [],
     t,
     isRTL,
     // Authentication & Users
@@ -37,6 +39,8 @@ export default function SettingsScreen() {
     addUser,
     deleteUser,
     logout,
+    sessionTimeoutMinutes,
+    updateSessionTimeout,
     // Firebase
     firebaseConfig,
     firebaseConnected,
@@ -52,6 +56,7 @@ export default function SettingsScreen() {
   const [phone, setPhone] = useState(storeInfo.phone || '');
   const [address, setAddress] = useState(storeInfo.address || '');
   const [footer, setFooter] = useState(storeInfo.footer || '');
+  const [toastMessage, setToastMessage] = useState('');
 
   // Firebase form fields
   const [apiKey, setApiKey] = useState(firebaseConfig?.apiKey || DEFAULT_FIREBASE_CONFIG.apiKey);
@@ -59,12 +64,17 @@ export default function SettingsScreen() {
   const [appId, setAppId] = useState(firebaseConfig?.appId || DEFAULT_FIREBASE_CONFIG.appId);
   const [authDomain, setAuthDomain] = useState(firebaseConfig?.authDomain || DEFAULT_FIREBASE_CONFIG.authDomain);
 
-  // New User Form Modal
+  // New User Form Modal (Dedicated 'users' collection)
   const [userModalVisible, setUserModalVisible] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserUsername, setNewUserUsername] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserRole, setNewUserRole] = useState('cashier'); // 'admin' | 'cashier'
+  const [newUserRole, setNewUserRole] = useState('cashier'); // 'admin' | 'cashier' | 'technician'
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
 
   useEffect(() => {
     if (storeInfo) {
@@ -86,14 +96,7 @@ export default function SettingsScreen() {
 
   const handleSaveStoreInfo = async () => {
     await setStoreInfo({ name, phone, address, footer });
-    const msg = isRTL
-      ? 'تم حفظ معلومات المحل بنجاح في فايربيس!'
-      : 'Informations du magasin enregistrées sur Firebase !';
-    if (Platform.OS === 'web') {
-      window.alert(msg);
-    } else {
-      Alert.alert(t('storeInfo'), msg);
-    }
+    showToast(isRTL ? '✅ تم حفظ معلومات المحل بنجاح' : '✅ Informations du magasin enregistrées');
   };
 
   const handleSaveFirebaseConfig = async () => {
@@ -116,12 +119,7 @@ export default function SettingsScreen() {
 
     const res = await applyFirebaseConfig(conf);
     if (res.success) {
-      Alert.alert(
-        t('firebaseSync'),
-        isRTL
-          ? 'تم تفعيل الاتصال بـ Firebase بنجاح!'
-          : 'Connexion Firebase établie avec succès !'
-      );
+      showToast(isRTL ? '✅ تم تفعيل الاتصال بـ Firebase' : '✅ Connexion Firebase établie');
     } else {
       Alert.alert(
         t('firebaseSync'),
@@ -133,11 +131,10 @@ export default function SettingsScreen() {
   const handlePushStock = async () => {
     try {
       const res = await uploadStockToCloud();
-      Alert.alert(
-        t('pushToCloud'),
+      showToast(
         isRTL
-          ? `تم رفع ${res.count} منتج بنجاح إلى Firebase Firestore!`
-          : `${res.count} produits synchronisés avec succès sur Firebase Firestore !`
+          ? `✅ تمت مزامنة ${res.count} منتج مع Firebase`
+          : `✅ ${res.count} produits synchronisés sur Firebase`
       );
     } catch (err) {
       Alert.alert(t('pushToCloud'), err.message);
@@ -148,11 +145,10 @@ export default function SettingsScreen() {
     try {
       const res = await downloadStockFromCloud();
       if (res.success) {
-        Alert.alert(
-          t('pullFromCloud'),
+        showToast(
           isRTL
-            ? `تم استيراد ${res.count} منتج بنجاح من Firebase!`
-            : `${res.count} produits récupérés avec succès depuis Firebase !`
+            ? `✅ تم استيراد ${res.count} منتج من Firebase`
+            : `✅ ${res.count} produits récupérés depuis Firebase`
         );
       } else {
         Alert.alert(t('pullFromCloud'), res.message);
@@ -162,6 +158,7 @@ export default function SettingsScreen() {
     }
   };
 
+  // Direct Validation & Instant Window Closure for Users
   const handleAddUser = async () => {
     if (!newUserUsername.trim() || !newUserPassword.trim()) {
       Alert.alert(
@@ -171,26 +168,23 @@ export default function SettingsScreen() {
       return;
     }
 
+    const payload = {
+      name: newUserName.trim() || newUserUsername.trim(),
+      username: newUserUsername.trim().toLowerCase(),
+      password: newUserPassword.trim(),
+      role: newUserRole,
+    };
+
+    // CLOSE MODAL DIRECTLY
+    setUserModalVisible(false);
+    setNewUserName('');
+    setNewUserUsername('');
+    setNewUserPassword('');
+    setNewUserRole('cashier');
+
     try {
-      await addUser({
-        name: newUserName.trim() || newUserUsername.trim(),
-        username: newUserUsername.trim().toLowerCase(),
-        password: newUserPassword.trim(),
-        role: newUserRole,
-      });
-
-      setNewUserName('');
-      setNewUserUsername('');
-      setNewUserPassword('');
-      setNewUserRole('cashier');
-      setUserModalVisible(false);
-
-      const msg = isRTL ? 'تم إنشاء المستخدم بنجاح في فايربيس!' : 'Utilisateur créé avec succès sur Firebase !';
-      if (Platform.OS === 'web') {
-        window.alert(msg);
-      } else {
-        Alert.alert('Utilisateur', msg);
-      }
+      await addUser(payload);
+      showToast(isRTL ? '✅ تم إنشاء المستخدم في جدول users' : '✅ Utilisateur enregistré dans la table users');
     } catch (err) {
       Alert.alert('Erreur', err.message);
     }
@@ -207,57 +201,67 @@ export default function SettingsScreen() {
     }
 
     const confirmMsg = isRTL
-      ? `هل أنت متأكد من حذف المستخدم "${u.username}" من فايربيس؟`
+      ? `هل أنت متأكد من حذف المستخدم "${u.username}" من جدول المستخدمين؟`
       : `Voulez-vous vraiment supprimer l'utilisateur "${u.username}" ?`;
 
     if (Platform.OS === 'web') {
       const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmMsg) : true;
-      if (confirmed) deleteUser(u.id);
+      if (confirmed) {
+        deleteUser(u.id);
+        showToast(isRTL ? 'تم حذف المستخدم' : 'Utilisateur supprimé');
+      }
       return;
     }
 
     Alert.alert('Supprimer', confirmMsg, [
       { text: t('cancel'), style: 'cancel' },
-      { text: isRTL ? 'حذف' : 'Supprimer', style: 'destructive', onPress: () => deleteUser(u.id) },
+      {
+        text: isRTL ? 'حذف' : 'Supprimer',
+        style: 'destructive',
+        onPress: () => {
+          deleteUser(u.id);
+          showToast(isRTL ? 'تم حذف المستخدم' : 'Utilisateur supprimé');
+        },
+      },
     ]);
   };
 
   const handleWipeAll = async () => {
     const confirmMsg = isRTL
-      ? 'تحذير: هل أنت متأكد من مسح جميع المنتجات والزبائن والديون والمبيعات والمصاريف بالكامل (محلياً وفي فايربيس)؟'
-      : 'ATTENTION : Voulez-vous vraiment effacer TOUTES les données (produits, clients, dettes, ventes, dépenses) sur Firebase ?';
+      ? 'تحذير: هل أنت متأكد من مسح جميع المنتجات والزبائن والديون والمبيعات والمصاريف بالكامل؟'
+      : 'ATTENTION : Voulez-vous vraiment effacer TOUTES les données ?';
 
     if (Platform.OS === 'web') {
       const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmMsg) : true;
       if (confirmed) {
         await wipeAllData();
-        window.alert(isRTL ? 'تم مسح جميع البيانات بنجاح!' : 'Toutes les données ont été effacées avec succès !');
+        showToast(isRTL ? 'تم مسح جميع البيانات بنجاح' : 'Toutes les données ont été effacées');
       }
       return;
     }
 
-    Alert.alert(
-      isRTL ? 'مسح شامل' : 'Vider Tout',
-      confirmMsg,
-      [
-        { text: t('cancel'), style: 'cancel' },
-        {
-          text: isRTL ? 'مسح نهائي' : 'Effacer Tout',
-          style: 'destructive',
-          onPress: async () => {
-            await wipeAllData();
-            Alert.alert(
-              t('dataManagement'),
-              isRTL ? 'تم مسح جميع البيانات بنجاح!' : 'Toutes les données ont été effacées avec succès !'
-            );
-          },
+    Alert.alert(isRTL ? 'مسح شامل' : 'Vider Tout', confirmMsg, [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: isRTL ? 'مسح نهائي' : 'Effacer Tout',
+        style: 'destructive',
+        onPress: async () => {
+          await wipeAllData();
+          showToast(isRTL ? 'تم مسح جميع البيانات بنجاح' : 'Toutes les données ont été effacées');
         },
-      ]
-    );
+      },
+    ]);
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Toast Feedback */}
+      {toastMessage ? (
+        <View style={styles.toastBanner}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </View>
+      ) : null}
+
       {/* Current User Session Banner */}
       {currentUser && (
         <View style={[styles.userSessionCard, isRTL && styles.rowReverse]}>
@@ -266,19 +270,125 @@ export default function SettingsScreen() {
               <Ionicons name="person-circle" size={24} color={theme.colors.primary} />
               <Text style={styles.sessionNameText}>{currentUser.name || currentUser.username}</Text>
               <View style={styles.roleTag}>
-                <Text style={styles.roleTagText}>{currentUser.role === 'admin' ? (isRTL ? 'مسؤول' : 'Admin') : (isRTL ? 'صراف' : 'Caissier')}</Text>
+                <Text style={styles.roleTagText}>
+                  {currentUser.role === 'admin'
+                    ? (isRTL ? 'مسؤول' : 'Admin')
+                    : currentUser.role === 'technician'
+                    ? (isRTL ? 'تقني' : 'Technicien')
+                    : (isRTL ? 'صراف' : 'Caissier')}
+                </Text>
               </View>
             </View>
             <Text style={styles.sessionSubText}>
               {isRTL ? 'المستخدم النشط:' : 'Connecté en tant que:'} @{currentUser.username}
             </Text>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
+          <TouchableOpacity style={styles.logoutBtn} onPress={() => logout(false)}>
             <Ionicons name="log-out-outline" size={16} color={theme.colors.danger} />
             <Text style={styles.logoutBtnText}>{isRTL ? 'خروج' : 'Déconnexion'}</Text>
           </TouchableOpacity>
         </View>
       )}
+
+      {/* DEDICATED USERS MANAGEMENT TABLE (Table 'users' Firestore) */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="people" size={20} color={theme.colors.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('usersManagement')}</Text>
+        </View>
+        <TouchableOpacity style={styles.addUserHeaderBtn} onPress={() => setUserModalVisible(true)}>
+          <Ionicons name="person-add" size={16} color="#ffffff" />
+          <Text style={styles.addUserHeaderBtnText}>{t('createUser')}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.usersHelpText, isRTL && styles.textRight]}>
+          {isRTL
+            ? 'كل مستخدم جديد يتم حفظه في جدول users الخاص في فايربيس وقاعدة البيانات المحلية.'
+            : 'Chaque utilisateur est enregistré dans la table users dédiée sur Firebase et localement.'}
+        </Text>
+
+        {(users || []).map((u) => {
+          const isMe = u.username === currentUser?.username;
+          return (
+            <View key={u.id} style={[styles.userItemRow, isRTL && styles.rowReverse]}>
+              <View style={[styles.userItemLeft, isRTL && styles.rowReverse]}>
+                <View
+                  style={[
+                    styles.userRoleDot,
+                    u.role === 'admin'
+                      ? styles.bgAdmin
+                      : u.role === 'technician'
+                      ? styles.bgTechnician
+                      : styles.bgCashier,
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      u.role === 'admin'
+                        ? 'shield-checkmark'
+                        : u.role === 'technician'
+                        ? 'build'
+                        : 'card-outline'
+                    }
+                    size={16}
+                    color="#ffffff"
+                  />
+                </View>
+                <View style={[styles.userItemDetails, isRTL && styles.alignRight]}>
+                  <Text style={styles.userItemName}>
+                    {u.name || u.username} {isMe ? (isRTL ? '(أنت)' : '(Vous)') : ''}
+                  </Text>
+                  <Text style={styles.userItemSub}>
+                    @{u.username} • {u.role === 'admin' ? t('admin') : u.role === 'technician' ? t('technician') : t('cashier')}
+                  </Text>
+                </View>
+              </View>
+
+              {!isMe && (
+                <TouchableOpacity style={styles.deleteUserBtn} onPress={() => handleDeleteUser(u)}>
+                  <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {/* SESSION TIMEOUT CONFIGURATION */}
+      <Text style={[styles.sectionTitle, isRTL && styles.textRight]}>
+        {isRTL ? 'أمان الجلسة وتسجيل الخروج التلقائي' : 'Sécurité de Session & Déconnexion Auto'}
+      </Text>
+      <View style={styles.card}>
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+          {isRTL ? 'مهلة عدم النشاط قبل تسجيل الخروج (بالدقائق):' : "Délai d'inactivité avant déconnexion automatique :"}
+        </Text>
+        <View style={[styles.timeoutSelectRow, isRTL && styles.rowReverse]}>
+          {[15, 30, 60, 120].map((mins) => (
+            <TouchableOpacity
+              key={mins}
+              style={[
+                styles.timeoutPill,
+                sessionTimeoutMinutes === mins && styles.timeoutPillActive,
+              ]}
+              onPress={() => {
+                updateSessionTimeout(mins);
+                showToast(isRTL ? `تم تحديد المهلة: ${mins} دقيقة` : `Délai fixé à ${mins} minutes`);
+              }}
+            >
+              <Text
+                style={[
+                  styles.timeoutPillText,
+                  sessionTimeoutMinutes === mins && styles.timeoutPillTextActive,
+                ]}
+              >
+                {mins} {isRTL ? 'دقيقة' : 'min'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
 
       {/* Firebase Cloud Sync Card */}
       <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
@@ -313,7 +423,6 @@ export default function SettingsScreen() {
           value={apiKey}
           onChangeText={setApiKey}
           placeholder="AIzaSy..."
-          secureTextEntry={false}
           autoCapitalize="none"
         />
 
@@ -381,51 +490,7 @@ export default function SettingsScreen() {
         )}
       </View>
 
-      {/* Users & Cashiers Management Section */}
-      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
-        <Text style={styles.sectionTitle}>
-          {isRTL ? 'إدارة المستخدمين والصيارفة' : 'Gestion des Utilisateurs & Caissiers'}
-        </Text>
-        <TouchableOpacity style={styles.addUserHeaderBtn} onPress={() => setUserModalVisible(true)}>
-          <Ionicons name="person-add" size={16} color="#ffffff" />
-          <Text style={styles.addUserHeaderBtnText}>{isRTL ? 'إضافة' : 'Nouveau'}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.card}>
-        {(users || []).map((u) => {
-          const isMe = u.username === currentUser?.username;
-          return (
-            <View key={u.id} style={[styles.userItemRow, isRTL && styles.rowReverse]}>
-              <View style={[styles.userItemLeft, isRTL && styles.rowReverse]}>
-                <View style={[styles.userRoleDot, u.role === 'admin' ? styles.bgAdmin : styles.bgCashier]}>
-                  <Ionicons
-                    name={u.role === 'admin' ? 'shield-checkmark' : 'card-outline'}
-                    size={16}
-                    color="#ffffff"
-                  />
-                </View>
-                <View style={[styles.userItemDetails, isRTL && styles.alignRight]}>
-                  <Text style={styles.userItemName}>
-                    {u.name || u.username} {isMe ? (isRTL ? '(أنت)' : '(Vous)') : ''}
-                  </Text>
-                  <Text style={styles.userItemSub}>
-                    @{u.username} • {u.role === 'admin' ? 'Administrateur' : 'Caissier'}
-                  </Text>
-                </View>
-              </View>
-
-              {!isMe && (
-                <TouchableOpacity style={styles.deleteUserBtn} onPress={() => handleDeleteUser(u)}>
-                  <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </View>
-
-      {/* Store Information Section (Saved directly to Firebase Firestore) */}
+      {/* Store Information Section */}
       <Text style={[styles.sectionTitle, isRTL && styles.textRight]}>{t('storeInfo')}</Text>
       <View style={styles.card}>
         <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('storeName')}</Text>
@@ -462,9 +527,7 @@ export default function SettingsScreen() {
         />
 
         <TouchableOpacity style={styles.saveBtn} onPress={handleSaveStoreInfo}>
-          <Text style={styles.saveBtnText}>
-            {isRTL ? 'حفظ معلومات المحل في فايربيس' : 'Enregistrer sur Firebase'}
-          </Text>
+          <Text style={styles.saveBtnText}>{t('save')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -518,8 +581,16 @@ export default function SettingsScreen() {
           <Text style={styles.statVal}>{(customers || []).length}</Text>
         </View>
         <View style={[styles.dataStatRow, isRTL && styles.rowReverse]}>
-          <Text style={styles.statLabel}>{isRTL ? 'إجمالي المبيعات' : 'Ventes enregistrées'} :</Text>
+          <Text style={styles.statLabel}>{isRTL ? 'المبيعات المسجلة' : 'Ventes enregistrées'} :</Text>
           <Text style={styles.statVal}>{(sales || []).length}</Text>
+        </View>
+        <View style={[styles.dataStatRow, isRTL && styles.rowReverse]}>
+          <Text style={styles.statLabel}>{t('services')} :</Text>
+          <Text style={styles.statVal}>{(services || []).length}</Text>
+        </View>
+        <View style={[styles.dataStatRow, isRTL && styles.rowReverse]}>
+          <Text style={styles.statLabel}>{t('repairs')} :</Text>
+          <Text style={styles.statVal}>{(repairs || []).length}</Text>
         </View>
         <View style={[styles.dataStatRow, isRTL && styles.rowReverse]}>
           <Text style={styles.statLabel}>{t('expenses')} :</Text>
@@ -540,14 +611,12 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Create User Modal */}
+      {/* Create User Modal (Validates & Exits Directly) */}
       <Modal visible={userModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
-              <Text style={styles.modalTitle}>
-                {isRTL ? 'إضافة مستخدم جديد' : 'Créer un Nouvel Utilisateur'}
-              </Text>
+              <Text style={styles.modalTitle}>{t('createUser')}</Text>
               <TouchableOpacity onPress={() => setUserModalVisible(false)}>
                 <Ionicons name="close" size={24} color={theme.colors.text} />
               </TouchableOpacity>
@@ -565,7 +634,7 @@ export default function SettingsScreen() {
               />
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
-                {isRTL ? 'اسم المستخدم (Identifiant) *' : 'Nom d\'utilisateur *'}
+                {t('username')} *
               </Text>
               <TextInput
                 style={[styles.inputBox, isRTL && styles.textRight]}
@@ -576,7 +645,7 @@ export default function SettingsScreen() {
               />
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
-                {isRTL ? 'كلمة المرور *' : 'Mot de passe *'}
+                {t('password')} *
               </Text>
               <TextInput
                 style={[styles.inputBox, isRTL && styles.textRight]}
@@ -588,7 +657,7 @@ export default function SettingsScreen() {
               />
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
-                {isRTL ? 'الرتبة والصلاحية' : 'Rôle / Permissions'}
+                {t('role')}
               </Text>
               <View style={[styles.roleSelectRow, isRTL && styles.rowReverse]}>
                 <TouchableOpacity
@@ -596,7 +665,16 @@ export default function SettingsScreen() {
                   onPress={() => setNewUserRole('cashier')}
                 >
                   <Text style={[styles.roleChipText, newUserRole === 'cashier' && styles.roleChipTextActive]}>
-                    💳 {isRTL ? 'صراف (Caissier)' : 'Caissier'}
+                    💳 {t('cashier')}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.roleChip, newUserRole === 'technician' && styles.roleChipActive]}
+                  onPress={() => setNewUserRole('technician')}
+                >
+                  <Text style={[styles.roleChipText, newUserRole === 'technician' && styles.roleChipTextActive]}>
+                    🔧 {t('technician')}
                   </Text>
                 </TouchableOpacity>
 
@@ -605,14 +683,15 @@ export default function SettingsScreen() {
                   onPress={() => setNewUserRole('admin')}
                 >
                   <Text style={[styles.roleChipText, newUserRole === 'admin' && styles.roleChipTextActive]}>
-                    🛡️ {isRTL ? 'مسؤول (Admin)' : 'Administrateur'}
+                    🛡️ {t('admin')}
                   </Text>
                 </TouchableOpacity>
               </View>
 
+              {/* Direct Save Button */}
               <TouchableOpacity style={styles.submitUserBtn} onPress={handleAddUser}>
                 <Text style={styles.submitUserBtnText}>
-                  {isRTL ? 'حفظ المستخدم في فايربيس' : 'Enregistrer sur Firebase'}
+                  {isRTL ? 'حفظ المستخدم في جدول users' : 'Enregistrer dans la table users'}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
@@ -640,6 +719,19 @@ const styles = StyleSheet.create({
   },
   alignRight: {
     alignItems: 'flex-end',
+  },
+  toastBanner: {
+    backgroundColor: '#10b981',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: theme.borderRadius.md,
+    marginBottom: 12,
+  },
+  toastText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+    textAlign: 'center',
   },
   userSessionCard: {
     flexDirection: 'row',
@@ -708,13 +800,14 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.medium,
     fontWeight: 'bold',
     color: theme.colors.text,
+    marginVertical: 4,
   },
   addUserHeaderBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.primary,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     borderRadius: theme.borderRadius.full,
   },
   addUserHeaderBtnText: {
@@ -722,6 +815,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginLeft: 4,
+  },
+  usersHelpText: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginBottom: 10,
   },
   statusPill: {
     flexDirection: 'row',
@@ -752,6 +850,8 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     marginBottom: theme.spacing.md,
     elevation: 1,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
   inputLabel: {
     fontSize: theme.typography.small,
@@ -769,6 +869,31 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.regular,
     backgroundColor: '#ffffff',
     color: theme.colors.text,
+  },
+  timeoutSelectRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+  },
+  timeoutPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#f1f5f9',
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  timeoutPillActive: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  timeoutPillText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.textSecondary,
+  },
+  timeoutPillTextActive: {
+    color: '#ffffff',
   },
   testBtn: {
     backgroundColor: theme.colors.secondary,
@@ -802,23 +927,24 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   lastSyncText: {
-    fontSize: 11,
+    fontSize: 10,
     color: theme.colors.textMuted,
   },
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: theme.spacing.sm,
+    padding: 10,
   },
   syncingText: {
-    fontSize: theme.typography.small,
-    color: theme.colors.textSecondary,
     marginLeft: 8,
+    fontSize: 12,
+    color: theme.colors.primary,
   },
   syncBtnRow: {
     flexDirection: 'row',
-    marginTop: 4,
+    justifyContent: 'space-between',
+    marginTop: 6,
   },
   pushBtn: {
     flex: 1,
@@ -826,28 +952,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ea580c',
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: theme.borderRadius.md,
-    marginRight: 6,
+    marginRight: 4,
   },
   pullBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 10,
+    backgroundColor: '#0284c7',
+    paddingVertical: 8,
     borderRadius: theme.borderRadius.md,
-    marginRight: 6,
+    marginHorizontal: 4,
   },
   refreshBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.secondary,
-    paddingVertical: 10,
+    backgroundColor: '#059669',
+    paddingVertical: 8,
     borderRadius: theme.borderRadius.md,
+    marginLeft: 4,
   },
   syncBtnText: {
     color: '#ffffff',
@@ -866,7 +993,6 @@ const styles = StyleSheet.create({
   userItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   userRoleDot: {
     width: 32,
@@ -877,16 +1003,17 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   bgAdmin: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#4f46e5',
   },
   bgCashier: {
-    backgroundColor: theme.colors.secondary,
+    backgroundColor: '#059669',
   },
-  userItemDetails: {
-    flex: 1,
+  bgTechnician: {
+    backgroundColor: '#d97706',
   },
+  userItemDetails: {},
   userItemName: {
-    fontSize: theme.typography.medium,
+    fontSize: 13,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
@@ -896,8 +1023,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   deleteUserBtn: {
-    padding: 8,
-    borderRadius: theme.borderRadius.full,
+    padding: 6,
+    borderRadius: theme.borderRadius.sm,
     backgroundColor: theme.colors.dangerLight,
   },
   saveBtn: {
@@ -905,12 +1032,11 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
     alignItems: 'center',
-    marginTop: theme.spacing.lg,
+    marginTop: theme.spacing.md,
   },
   saveBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: theme.typography.medium,
   },
   languageRow: {
     flexDirection: 'row',
@@ -918,10 +1044,10 @@ const styles = StyleSheet.create({
   },
   langBtn: {
     flex: 1,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: theme.colors.surface,
+    paddingVertical: 10,
     alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
     marginHorizontal: 4,
     borderWidth: 1,
     borderColor: theme.colors.border,
@@ -943,10 +1069,10 @@ const styles = StyleSheet.create({
   },
   currChip: {
     paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: theme.borderRadius.full,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
     backgroundColor: theme.colors.surface,
-    marginRight: 8,
+    marginRight: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -964,30 +1090,31 @@ const styles = StyleSheet.create({
   dataStatRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
   statLabel: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     color: theme.colors.textSecondary,
   },
   statVal: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     fontWeight: 'bold',
-    color: theme.colors.primary,
+    color: theme.colors.text,
   },
   resetBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.full,
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 1,
   },
   resetBtnText: {
     fontWeight: 'bold',
     marginLeft: 6,
+    fontSize: 12,
   },
   modalOverlay: {
     flex: 1,
@@ -1002,7 +1129,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
-    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1025,37 +1151,36 @@ const styles = StyleSheet.create({
   },
   roleChip: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: '#f1f5f9',
     alignItems: 'center',
+    marginHorizontal: 3,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.md,
-    marginRight: 8,
-    backgroundColor: '#f8fafc',
   },
   roleChipActive: {
-    backgroundColor: theme.colors.primaryLight,
+    backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
   },
   roleChipText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: 'bold',
     color: theme.colors.textSecondary,
   },
   roleChipTextActive: {
-    color: theme.colors.primary,
-    fontWeight: 'bold',
+    color: '#ffffff',
   },
   submitUserBtn: {
     backgroundColor: theme.colors.primary,
-    padding: theme.spacing.md,
+    paddingVertical: 12,
     borderRadius: theme.borderRadius.full,
     alignItems: 'center',
-    marginTop: theme.spacing.lg,
+    marginTop: 14,
   },
   submitUserBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: theme.typography.medium,
+    fontSize: 13,
   },
 });

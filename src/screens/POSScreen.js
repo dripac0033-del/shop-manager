@@ -21,6 +21,7 @@ export default function POSScreen() {
     t,
     formatMoney,
     products = [],
+    categories = [],
     customers = [],
     completeSale,
     isRTL,
@@ -30,17 +31,21 @@ export default function POSScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [stockFilter, setStockFilter] = useState('all'); // 'all' | 'inStock' | 'lowStock'
   const [cart, setCart] = useState([]);
-  
+
   // Barcode Fast Scan State
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [scanFeedback, setScanFeedback] = useState(null); // { type: 'success' | 'error', text: '' }
+  const [scanFeedback, setScanFeedback] = useState(null);
   const [scannerModalVisible, setScannerModalVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
-  // Discount & Checkout
+  // Discount & Checkout Modal
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState('fixed'); // 'fixed' | 'percent'
   const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
+
+  // Quick Receipt View Modal (Optional on-demand)
   const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [lastCompletedSale, setLastCompletedSale] = useState(null);
 
@@ -54,9 +59,12 @@ export default function POSScreen() {
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [paidAmountInput, setPaidAmountInput] = useState('');
 
-  // Categories list
   const validProducts = Array.isArray(products) ? products : [];
-  const categories = ['All', ...new Set(validProducts.map((p) => p.category).filter(Boolean))];
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3500);
+  };
 
   // Filtered Products
   const filteredProducts = validProducts.filter((p) => {
@@ -70,9 +78,20 @@ export default function POSScreen() {
       barcodeStr.includes(q) ||
       nameFrStr.includes(q) ||
       nameArStr.includes(q);
+
     const matchesCategory =
-      selectedCategory === 'All' || p.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+      selectedCategory === 'All' ||
+      p.category === selectedCategory ||
+      (selectedCategory.nameFr && p.category === selectedCategory.nameFr);
+
+    let matchesStock = true;
+    if (stockFilter === 'inStock') {
+      matchesStock = p.stock > 0;
+    } else if (stockFilter === 'lowStock') {
+      matchesStock = p.stock <= p.minStock && p.stock > 0;
+    }
+
+    return matchesSearch && matchesCategory && matchesStock;
   });
 
   // Cart operations
@@ -121,7 +140,7 @@ export default function POSScreen() {
     setDiscount(0);
   };
 
-  // Barcode scanning handler (works with physical barcode gun / scanner / typed input)
+  // Barcode scanning handler
   const handleBarcodeScan = (manualCode) => {
     const code = (manualCode || barcodeInput).trim();
     if (!code) return;
@@ -159,7 +178,7 @@ export default function POSScreen() {
 
     setTimeout(() => {
       setScanFeedback(null);
-    }, 3500);
+    }, 3000);
   };
 
   // Calculations
@@ -173,7 +192,7 @@ export default function POSScreen() {
   const change = Math.max(0, Number(paidAmountInput || 0) - total);
   const remainingCredit = Math.max(0, total - Number(paidAmountInput || 0));
 
-  // Handle Checkout submission
+  // Direct Validation & Instant Window Closure on Sale Completion
   const handleConfirmSale = async () => {
     if (cart.length === 0) return;
 
@@ -182,7 +201,7 @@ export default function POSScreen() {
       return;
     }
 
-    const { sale, lowStockWarnings } = await completeSale({
+    const payload = {
       items: cart,
       subtotal,
       discount: calculatedDiscount,
@@ -190,40 +209,43 @@ export default function POSScreen() {
       paidAmount: paymentMethod === 'cash' ? total : Number(paidAmountInput || 0),
       paymentMethod,
       customerId: selectedCustomerId || null,
-    });
+    };
 
-    setLastCompletedSale(sale);
+    // DIRECTLY QUIT WINDOW (quitte la fenêtre immédiatement)
     setCheckoutModalVisible(false);
 
-    // Pre-fill phone if client is selected
-    const chosenCust = (customers || []).find((c) => c.id === selectedCustomerId);
-    if (chosenCust?.phone) {
-      setSharePhone(chosenCust.phone);
-    } else {
-      setSharePhone('');
-    }
-    setShareEmail('');
+    try {
+      const { sale, lowStockWarnings } = await completeSale(payload);
+      setLastCompletedSale(sale);
 
-    clearCart();
-    setPaidAmountInput('');
-    setSelectedCustomerId('');
-    setPaymentMethod('cash');
-    setReceiptModalVisible(true);
+      clearCart();
+      setPaidAmountInput('');
+      setSelectedCustomerId('');
+      setPaymentMethod('cash');
 
-    if (lowStockWarnings && lowStockWarnings.length > 0) {
-      const names = lowStockWarnings.map((p) => isRTL ? (p.nameAr || p.nameFr) : p.nameFr).join(', ');
-      setTimeout(() => {
-        Alert.alert(
-          isRTL ? '⚠️ تنبيه: نقص في المخزون!' : '⚠️ Attention : Seuil Stock Limite Atteint !',
-          isRTL
-            ? `المنتجات التالية وصلت إلى الحد الأدنى للمخزون: ${names}. يرجى إعادة الطلب في أقرب وقت.`
-            : `Le(s) produit(s) suivant(s) ont atteint ou dépassé le seuil minimum d'alerte : ${names}. Pensez à vous réapprovisionner !`
-        );
-      }, 600);
+      showToast(
+        isRTL
+          ? `✅ تمت عملية البيع بنجاح (${formatMoney(total)})`
+          : `✅ Vente validée avec succès (${formatMoney(total)})`
+      );
+
+      if (lowStockWarnings && lowStockWarnings.length > 0) {
+        const names = lowStockWarnings.map((p) => (isRTL ? p.nameAr || p.nameFr : p.nameFr)).join(', ');
+        setTimeout(() => {
+          Alert.alert(
+            isRTL ? '⚠️ تنبيه: نقص في المخزون!' : '⚠️ Attention : Seuil Stock Limite Atteint !',
+            isRTL
+              ? `المنتجات التالية وصلت إلى الحد الأدنى للمخزون: ${names}.`
+              : `Le(s) produit(s) suivant(s) ont atteint le seuil minimum : ${names}.`
+          );
+        }, 800);
+      }
+    } catch (err) {
+      console.warn('Error completing sale:', err);
     }
   };
 
-  // Generate formatted printable / readable text ticket
+  // Generate Receipt Text
   const generateReceiptText = (sale) => {
     if (!sale) return '';
     const dateStr = sale.date ? new Date(sale.date).toLocaleString() : new Date().toLocaleString();
@@ -263,7 +285,6 @@ export default function POSScreen() {
     return lines.join('\n');
   };
 
-  // Send receipt via WhatsApp
   const handleSendWhatsApp = (sale) => {
     const text = generateReceiptText(sale);
     const cleanPhone = (sharePhone || '').replace(/[^0-9]/g, '');
@@ -279,13 +300,10 @@ export default function POSScreen() {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.open(url, '_blank');
     } else {
-      Linking.openURL(url).catch(() => {
-        Alert.alert('WhatsApp', text);
-      });
+      Linking.openURL(url).catch(() => Alert.alert('WhatsApp', text));
     }
   };
 
-  // Send receipt via Email
   const handleSendEmail = (sale) => {
     const text = generateReceiptText(sale);
     const subject = `Facture / Ticket - ${storeInfo.name || 'Store Soft'}`;
@@ -295,13 +313,10 @@ export default function POSScreen() {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.open(mailto, '_blank');
     } else {
-      Linking.openURL(mailto).catch(() => {
-        Alert.alert('Email', text);
-      });
+      Linking.openURL(mailto).catch(() => Alert.alert('Email', text));
     }
   };
 
-  // Copy receipt to clipboard
   const handleCopyReceipt = (sale) => {
     const text = generateReceiptText(sale);
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -315,6 +330,22 @@ export default function POSScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Toast Feedback */}
+      {toastMessage ? (
+        <View style={styles.toastBanner}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+          {lastCompletedSale && (
+            <TouchableOpacity
+              style={styles.toastReceiptBtn}
+              onPress={() => setReceiptModalVisible(true)}
+            >
+              <Ionicons name="receipt-outline" size={14} color="#ffffff" />
+              <Text style={styles.toastReceiptBtnText}>{isRTL ? 'عرض التذكرة' : 'Voir Ticket'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : null}
+
       {/* 1. Barcode Scanner Fast-Entry Bar */}
       <View style={[styles.barcodeScanBar, isRTL && styles.rowReverse]}>
         <View style={styles.barcodeIconBox}>
@@ -350,7 +381,7 @@ export default function POSScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Instant Scan Toast / Feedback */}
+      {/* Instant Scan Toast */}
       {scanFeedback && (
         <View
           style={[
@@ -368,7 +399,7 @@ export default function POSScreen() {
         </View>
       )}
 
-      {/* 2. Text Search Bar */}
+      {/* 2. Text Search & Stock Filter Bar */}
       <View style={[styles.searchBar, isRTL && styles.rowReverse]}>
         <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
         <TextInput
@@ -388,22 +419,39 @@ export default function POSScreen() {
       {/* Category selector chips */}
       <View style={styles.categoryContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
+          <TouchableOpacity
+            style={[
+              styles.categoryChip,
+              selectedCategory === 'All' && styles.categoryChipActive,
+            ]}
+            onPress={() => setSelectedCategory('All')}
+          >
+            <Text
+              style={[
+                styles.categoryChipText,
+                selectedCategory === 'All' && styles.categoryChipTextActive,
+              ]}
+            >
+              {t('allCategories')}
+            </Text>
+          </TouchableOpacity>
+
           {categories.map((cat) => (
             <TouchableOpacity
-              key={cat}
+              key={cat.id}
               style={[
                 styles.categoryChip,
-                selectedCategory === cat && styles.categoryChipActive,
+                (selectedCategory === cat.nameFr || selectedCategory === cat.nameAr) && styles.categoryChipActive,
               ]}
-              onPress={() => setSelectedCategory(cat)}
+              onPress={() => setSelectedCategory(isRTL ? cat.nameAr || cat.nameFr : cat.nameFr)}
             >
               <Text
                 style={[
                   styles.categoryChipText,
-                  selectedCategory === cat && styles.categoryChipTextActive,
+                  (selectedCategory === cat.nameFr || selectedCategory === cat.nameAr) && styles.categoryChipTextActive,
                 ]}
               >
-                {cat === 'All' ? t('allCategories') : cat}
+                {isRTL ? cat.nameAr || cat.nameFr : cat.nameFr}
               </Text>
             </TouchableOpacity>
           ))}
@@ -413,7 +461,7 @@ export default function POSScreen() {
       {/* Products Grid */}
       <FlatList
         data={filteredProducts}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => String(item.id)}
         numColumns={2}
         contentContainerStyle={styles.productsGrid}
         renderItem={({ item }) => {
@@ -478,7 +526,7 @@ export default function POSScreen() {
             <Text style={styles.emptyProductsSub}>
               {isRTL
                 ? 'يرجى التوجه إلى قسم (المنتجات) لإضافة سلع إلى المخزون أو مسح كود بار.'
-                : 'Veuillez ajouter des articles dans l\'onglet Produits pour enregistrer des ventes.'}
+                : "Veuillez ajouter des articles dans l'onglet Produits pour enregistrer des ventes."}
             </Text>
           </View>
         }
@@ -514,7 +562,7 @@ export default function POSScreen() {
         </View>
       </View>
 
-      {/* Checkout Modal */}
+      {/* Checkout Modal (Validates & Exits Directly) */}
       <Modal visible={checkoutModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -551,7 +599,7 @@ export default function POSScreen() {
                 </View>
               ))}
 
-              {/* Discount / Remise (DZD ou %) */}
+              {/* Discount / Remise */}
               <View style={[styles.discountContainer, isRTL && styles.rowReverse]}>
                 <View style={[styles.discountHeader, isRTL && styles.rowReverse]}>
                   <Text style={styles.discountLabel}>{t('discount')} :</Text>
@@ -731,6 +779,7 @@ export default function POSScreen() {
               )}
             </ScrollView>
 
+            {/* Direct Checkout Validation Button (Quits window immediately) */}
             <TouchableOpacity style={styles.confirmSaleBtn} onPress={handleConfirmSale}>
               <Text style={styles.confirmSaleBtnText}>{t('pay')} ({formatMoney(total)})</Text>
             </TouchableOpacity>
@@ -738,7 +787,7 @@ export default function POSScreen() {
         </View>
       </Modal>
 
-      {/* 3. Barcode Scanner Camera & Quick Tester Modal */}
+      {/* Barcode Scanner Modal */}
       <Modal visible={scannerModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.scannerModalCard}>
@@ -755,18 +804,15 @@ export default function POSScreen() {
             </View>
 
             <ScrollView style={{ maxHeight: 420 }}>
-              {/* Simulated Camera Viewfinder */}
               <View style={styles.viewfinderFrame}>
-                <View style={styles.viewfinderScanLine} />
-                <Ionicons name="barcode-outline" size={60} color="#22c55e" />
+                <Ionicons name="barcode-outline" size={64} color="#22c55e" />
                 <Text style={styles.viewfinderHelp}>
                   {isRTL
-                    ? 'وجه الكاميرا أو قارئ الباركود نحو كود المنتج'
-                    : 'Pointez votre lecteur ou saisissez le code ci-dessous'}
+                    ? 'امسح بالباركود أو اكتب الكود للإضافة السريعة'
+                    : 'Scannez un article ou tapez le code pour ajouter au panier'}
                 </Text>
               </View>
 
-              {/* Fast Manual Input */}
               <View style={[styles.scannerInputRow, isRTL && styles.rowReverse]}>
                 <TextInput
                   style={[styles.scannerModalInput, isRTL && styles.textRight]}
@@ -791,176 +837,51 @@ export default function POSScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-
-              {/* Quick-tap products with barcode */}
-              <Text style={[styles.scannerQuickTitle, isRTL && styles.textRight]}>
-                {isRTL ? 'أو اختر منتجاً بنقرة واحدة:' : 'Ou cliquez sur un produit pour simuler :'}
-              </Text>
-              {validProducts.slice(0, 10).map((prod) => (
-                <TouchableOpacity
-                  key={prod.id}
-                  style={[styles.scannerProductItem, isRTL && styles.rowReverse]}
-                  onPress={() => {
-                    handleBarcodeScan(prod.barcode);
-                    setScannerModalVisible(false);
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.scannerProdName}>
-                      {isRTL ? prod.nameAr || prod.nameFr : prod.nameFr}
-                    </Text>
-                    <Text style={styles.scannerProdCode}>#{prod.barcode}</Text>
-                  </View>
-                  <Text style={styles.scannerProdPrice}>{formatMoney(prod.sellPrice)}</Text>
-                </TouchableOpacity>
-              ))}
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* 4. Thermal Receipt & Direct Share Modal (WhatsApp, Email, Print) */}
+      {/* Optional Receipt Viewer Modal */}
       <Modal visible={receiptModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.receiptContainer}>
-            <ScrollView contentContainerStyle={styles.receiptContent}>
-              <Text style={styles.receiptStoreName}>{storeInfo.name || 'Store Soft'}</Text>
-              <Text style={styles.receiptSub}>
-                {storeInfo.phone} • {storeInfo.address}
-              </Text>
-              <Text style={styles.receiptDivider}>--------------------------------</Text>
-              <Text style={styles.receiptDate}>
-                {new Date().toLocaleDateString()} {new Date().toLocaleTimeString()}
-              </Text>
-              {lastCompletedSale?.cashierName && (
-                <Text style={styles.receiptCashierText}>
-                  {isRTL ? 'البائع:' : 'Caissier :'} {lastCompletedSale.cashierName}
-                </Text>
-              )}
-              <Text style={styles.receiptDivider}>--------------------------------</Text>
-
-              {(lastCompletedSale?.items || []).map((item, index) => (
-                <View key={index} style={styles.receiptItemRow}>
-                  <Text style={styles.receiptItemName}>
-                    {item.nameFr || item.nameAr} x{item.quantity}
-                  </Text>
-                  <Text style={styles.receiptItemTotal}>
-                    {formatMoney(item.sellPrice * item.quantity)}
-                  </Text>
-                </View>
-              ))}
-
-              <Text style={styles.receiptDivider}>--------------------------------</Text>
-
-              {lastCompletedSale?.discount > 0 && (
-                <View style={styles.receiptDiscountRow}>
-                  <Text style={styles.receiptDiscountLabel}>{t('discount')}</Text>
-                  <Text style={styles.receiptDiscountVal}>
-                    -{formatMoney(lastCompletedSale.discount)}
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.receiptTotalRow}>
-                <Text style={styles.receiptTotalLabel}>{t('total')}</Text>
-                <Text style={styles.receiptTotalVal}>{formatMoney(lastCompletedSale?.total || 0)}</Text>
-              </View>
-
-              <Text style={styles.receiptMethod}>
-                {t('paymentMethod')}: {lastCompletedSale?.paymentMethod === 'cash' ? t('cash') : t('credit')}
-              </Text>
-
-              <Text style={styles.receiptDivider}>--------------------------------</Text>
-              <Text style={styles.receiptFooter}>{storeInfo.footer || 'Merci pour votre visite !'}</Text>
-
-              {/* Instant Share Inputs (WhatsApp & Email) */}
-              <View style={styles.shareSectionBox}>
-                <Text style={[styles.shareSectionTitle, isRTL && styles.textRight]}>
-                  {isRTL ? 'إرسال الفاتورة مباشرة للزبون :' : 'Envoyer la facture directement au client :'}
-                </Text>
-
-                {/* WhatsApp Direct */}
-                <View style={[styles.shareInputRow, isRTL && styles.rowReverse]}>
-                  <View style={styles.shareInputWrapper}>
-                    <Ionicons name="logo-whatsapp" size={18} color="#25D366" style={{ marginHorizontal: 6 }} />
-                    <TextInput
-                      style={[styles.shareInput, isRTL && styles.textRight]}
-                      placeholder="0555... / +213"
-                      keyboardType="phone-pad"
-                      value={sharePhone}
-                      onChangeText={setSharePhone}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={styles.whatsAppShareBtn}
-                    onPress={() => handleSendWhatsApp(lastCompletedSale)}
-                  >
-                    <Ionicons name="logo-whatsapp" size={16} color="#ffffff" />
-                    <Text style={styles.shareBtnText}>WhatsApp</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Email Direct */}
-                <View style={[styles.shareInputRow, isRTL && styles.rowReverse]}>
-                  <View style={styles.shareInputWrapper}>
-                    <Ionicons name="mail-outline" size={18} color="#3b82f6" style={{ marginHorizontal: 6 }} />
-                    <TextInput
-                      style={[styles.shareInput, isRTL && styles.textRight]}
-                      placeholder="email@client.com"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      value={shareEmail}
-                      onChangeText={setShareEmail}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={styles.emailShareBtn}
-                    onPress={() => handleSendEmail(lastCompletedSale)}
-                  >
-                    <Ionicons name="mail" size={16} color="#ffffff" />
-                    <Text style={styles.shareBtnText}>Email</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </ScrollView>
-
-            {/* Receipt Modal Bottom Actions */}
-            <View style={styles.receiptActions}>
-              <TouchableOpacity
-                style={styles.receiptPrintBtn}
-                onPress={() => {
-                  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.print) {
-                    window.print();
-                    return;
-                  }
-                  Alert.alert(t('printReceipt'), isRTL ? 'تم إرسال أمر الطباعة إلى الطابعة الحرارية!' : 'Impression thermique envoyée !');
-                }}
-              >
-                <Ionicons name="print" size={18} color="#ffffff" />
-                <Text style={styles.receiptPrintBtnText}>{t('printReceipt')}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.receiptCopyBtn}
-                onPress={() => handleCopyReceipt(lastCompletedSale)}
-              >
-                <Ionicons
-                  name={copyFeedback ? 'checkmark' : 'copy-outline'}
-                  size={18}
-                  color={copyFeedback ? '#22c55e' : theme.colors.text}
-                />
-                <Text style={[styles.receiptCopyBtnText, copyFeedback && { color: '#22c55e' }]}>
-                  {copyFeedback ? (isRTL ? 'تم النسخ' : 'Copié !') : (isRTL ? 'نسخ' : 'Copier')}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.receiptCloseBtn}
-                onPress={() => setReceiptModalVisible(false)}
-              >
-                <Text style={styles.receiptCloseBtnText}>{t('close')}</Text>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <Text style={styles.modalTitle}>{t('receipt')}</Text>
+              <TouchableOpacity onPress={() => setReceiptModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
               </TouchableOpacity>
             </View>
+
+            {lastCompletedSale && (
+              <ScrollView style={{ maxHeight: 380 }}>
+                <View style={styles.receiptPaper}>
+                  <Text style={styles.receiptPaperText}>
+                    {generateReceiptText(lastCompletedSale)}
+                  </Text>
+                </View>
+
+                <View style={styles.receiptModalActions}>
+                  <TouchableOpacity
+                    style={styles.receiptWhatsAppBtn}
+                    onPress={() => handleSendWhatsApp(lastCompletedSale)}
+                  >
+                    <Ionicons name="logo-whatsapp" size={18} color="#ffffff" />
+                    <Text style={styles.receiptActionText}>WhatsApp</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.receiptCopyBtn}
+                    onPress={() => handleCopyReceipt(lastCompletedSale)}
+                  >
+                    <Ionicons name="copy-outline" size={18} color={theme.colors.text} />
+                    <Text style={styles.receiptCopyText}>
+                      {copyFeedback ? (isRTL ? 'تم النسخ' : 'Copié') : (isRTL ? 'نسخ' : 'Copier')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
@@ -979,33 +900,59 @@ const styles = StyleSheet.create({
   textRight: {
     textAlign: 'right',
   },
+  toastBanner: {
+    backgroundColor: '#10b981',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  toastText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+    flex: 1,
+  },
+  toastReceiptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: theme.borderRadius.full,
+    marginLeft: 8,
+  },
+  toastReceiptBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
   barcodeScanBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.borderRadius.full,
     borderWidth: 1.5,
     borderColor: theme.colors.primary,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 5,
+    elevation: 2,
+    height: 48,
   },
   barcodeIconBox: {
-    marginRight: 8,
+    paddingHorizontal: 6,
   },
   barcodeInput: {
     flex: 1,
-    height: 42,
-    fontSize: 14,
+    height: 44,
+    fontSize: 13,
     color: theme.colors.text,
   },
   barcodeActionBtn: {
-    paddingHorizontal: 6,
+    padding: 4,
   },
   cameraScanBtn: {
     flexDirection: 'row',
@@ -1013,12 +960,12 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: theme.borderRadius.sm,
-    marginLeft: 6,
+    borderRadius: theme.borderRadius.full,
+    marginLeft: 4,
   },
   cameraScanBtnText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
     marginLeft: 4,
   },
@@ -1027,12 +974,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: theme.spacing.md,
     marginTop: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: theme.borderRadius.sm,
+    padding: 8,
+    borderRadius: theme.borderRadius.md,
   },
   bgSuccess: {
-    backgroundColor: '#16a34a',
+    backgroundColor: '#059669',
   },
   bgDanger: {
     backgroundColor: '#dc2626',
@@ -1041,8 +987,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: 'bold',
-    marginLeft: 6,
-    flex: 1,
+    marginLeft: 8,
   },
   searchBar: {
     flexDirection: 'row',
@@ -1050,35 +995,32 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     marginHorizontal: theme.spacing.md,
     marginTop: 8,
-    marginBottom: 8,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    height: 42,
   },
   searchIcon: {
-    marginRight: theme.spacing.sm,
+    marginRight: 6,
   },
   searchInput: {
     flex: 1,
-    height: 42,
+    height: 40,
     fontSize: theme.typography.regular,
-    color: theme.colors.text,
   },
   categoryContainer: {
-    marginBottom: theme.spacing.sm,
+    marginVertical: 8,
   },
   categoryScroll: {
     paddingHorizontal: theme.spacing.md,
   },
   categoryChip: {
     paddingVertical: 6,
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: 12,
     borderRadius: theme.borderRadius.full,
     backgroundColor: theme.colors.surface,
-    marginRight: theme.spacing.sm,
+    marginRight: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -1087,126 +1029,141 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   categoryChipText: {
-    fontSize: theme.typography.small,
-    color: theme.colors.textSecondary,
+    fontSize: 12,
     fontWeight: '600',
+    color: theme.colors.textSecondary,
   },
   categoryChipTextActive: {
     color: '#ffffff',
   },
   productsGrid: {
-    padding: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
     paddingBottom: 90,
   },
   productCard: {
     flex: 1,
     backgroundColor: theme.colors.surface,
+    margin: 6,
+    padding: 12,
     borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.md,
-    margin: theme.spacing.xs,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    elevation: 1,
   },
   productCardDisabled: {
     opacity: 0.5,
   },
   inCartBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: theme.colors.secondary,
-    borderRadius: theme.borderRadius.full,
-    width: 24,
-    height: 24,
+    top: 6,
+    right: 6,
+    backgroundColor: theme.colors.primary,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
   },
   inCartBadgeText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
   },
   productName: {
-    fontSize: theme.typography.medium,
+    fontSize: 13,
     fontWeight: 'bold',
     color: theme.colors.text,
-    marginBottom: 2,
+    minHeight: 34,
   },
   productBarcodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginVertical: 4,
   },
   productBarcode: {
-    fontSize: 11,
+    fontSize: 10,
     color: theme.colors.textMuted,
-    marginLeft: 4,
+    marginLeft: 2,
   },
   productBottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 'auto',
+    marginTop: 6,
   },
   productPrice: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
   stockBadge: {
-    paddingVertical: 2,
     paddingHorizontal: 6,
+    paddingVertical: 2,
     borderRadius: theme.borderRadius.sm,
   },
   stockBadgeIn: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: theme.colors.successLight,
   },
   stockBadgeLow: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: theme.colors.warningLight,
   },
   stockBadgeOut: {
-    backgroundColor: '#fee2e2',
+    backgroundColor: theme.colors.dangerLight,
   },
   stockBadgeText: {
     fontSize: 10,
     fontWeight: 'bold',
   },
   stockTextIn: {
-    color: '#15803d',
+    color: theme.colors.success,
   },
   stockTextLow: {
     color: '#b45309',
   },
   stockTextOut: {
-    color: '#b91c1c',
+    color: theme.colors.danger,
+  },
+  emptyProductsBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyProductsTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginTop: 10,
+  },
+  emptyProductsSub: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
   },
   cartBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: '#ffffff',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
     elevation: 8,
   },
   cartInfo: {
     flex: 1,
   },
   cartItemsCount: {
-    fontSize: theme.typography.small,
+    fontSize: 12,
     color: theme.colors.textSecondary,
   },
   cartTotalAmount: {
-    fontSize: theme.typography.header,
+    fontSize: 20,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
@@ -1215,25 +1172,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   clearCartBtn: {
-    padding: theme.spacing.sm,
-    marginRight: theme.spacing.sm,
+    padding: 10,
+    marginRight: 8,
   },
   checkoutBtn: {
+    backgroundColor: theme.colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.primary,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
     borderRadius: theme.borderRadius.full,
+    elevation: 2,
   },
   checkoutBtnDisabled: {
-    backgroundColor: theme.colors.border,
+    opacity: 0.5,
   },
   checkoutBtnText: {
     color: '#ffffff',
-    fontSize: theme.typography.medium,
     fontWeight: 'bold',
-    marginRight: theme.spacing.xs,
+    fontSize: 14,
+    marginRight: 6,
   },
   modalOverlay: {
     flex: 1,
@@ -1243,11 +1201,11 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalContent: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
     width: '100%',
     maxWidth: 500,
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
     maxHeight: '90%',
   },
   modalHeader: {
@@ -1255,77 +1213,73 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    paddingBottom: theme.spacing.sm,
   },
   modalTitle: {
-    fontSize: theme.typography.header,
+    fontSize: theme.typography.medium,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
   modalScroll: {
-    maxHeight: 400,
+    maxHeight: 460,
   },
   modalSectionLabel: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     fontWeight: 'bold',
-    color: theme.colors.textSecondary,
-    marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.xs,
+    color: theme.colors.text,
+    marginBottom: 8,
+    marginTop: 10,
   },
   cartItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: theme.spacing.xs,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.border,
   },
   cartItemDesc: {
-    flex: 2,
+    flex: 1,
   },
   cartItemTitle: {
-    fontSize: theme.typography.regular,
-    fontWeight: 'bold',
+    fontSize: 13,
+    fontWeight: '600',
     color: theme.colors.text,
   },
   cartItemSub: {
-    fontSize: theme.typography.small,
+    fontSize: 11,
     color: theme.colors.textMuted,
   },
   cartItemQtyControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
+    marginHorizontal: 12,
   },
   qtyBtn: {
     width: 28,
     height: 28,
-    borderRadius: theme.borderRadius.sm,
-    backgroundColor: theme.colors.background,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
   },
   qtyText: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     fontWeight: 'bold',
-    marginHorizontal: theme.spacing.sm,
+    marginHorizontal: 8,
   },
   cartItemTotal: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     fontWeight: 'bold',
     color: theme.colors.text,
-    flex: 1,
-    textAlign: 'right',
   },
   discountContainer: {
-    marginTop: theme.spacing.md,
     backgroundColor: '#f8fafc',
     padding: 10,
     borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    marginVertical: 10,
   },
   discountHeader: {
     flexDirection: 'row',
@@ -1334,93 +1288,91 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   discountLabel: {
-    fontSize: theme.typography.regular,
-    fontWeight: 'bold',
+    fontSize: 12,
+    fontWeight: '600',
     color: theme.colors.text,
   },
   discountTypeToggle: {
     flexDirection: 'row',
     backgroundColor: '#e2e8f0',
-    borderRadius: theme.borderRadius.sm,
+    borderRadius: 6,
     padding: 2,
   },
   toggleBtn: {
     paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: theme.borderRadius.sm - 2,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   toggleBtnActive: {
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#ffffff',
   },
   toggleBtnText: {
     fontSize: 11,
-    fontWeight: 'bold',
-    color: theme.colors.textSecondary,
+    color: theme.colors.textMuted,
   },
   toggleBtnTextActive: {
-    color: '#ffffff',
+    color: theme.colors.text,
+    fontWeight: 'bold',
   },
   discountInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   discountInput: {
-    flex: 1,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 4,
+    borderRadius: 6,
     backgroundColor: '#ffffff',
-    fontSize: 14,
+    height: 36,
+    paddingHorizontal: 8,
+    width: 100,
+    fontSize: 13,
   },
   discountEquivalent: {
-    marginLeft: 8,
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontSize: 12,
     color: theme.colors.danger,
+    marginLeft: 8,
+    fontWeight: 'bold',
   },
   totalBanner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: theme.colors.primaryLight,
-    padding: theme.spacing.md,
+    padding: 12,
     borderRadius: theme.borderRadius.md,
-    marginVertical: theme.spacing.md,
+    marginVertical: 8,
   },
   totalBannerLabel: {
-    fontSize: theme.typography.header,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: theme.colors.primary,
+    color: theme.colors.primaryDark,
   },
   totalBannerAmount: {
-    fontSize: theme.typography.header,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: theme.colors.primary,
+    color: theme.colors.primaryDark,
   },
   paymentMethodRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginVertical: theme.spacing.sm,
+    marginVertical: 8,
   },
   methodBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: theme.spacing.sm,
+    paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    marginHorizontal: 4,
+    backgroundColor: '#f1f5f9',
+    marginHorizontal: 3,
   },
   methodBtnActive: {
     backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
   },
   methodBtnText: {
-    fontSize: theme.typography.small,
+    fontSize: 11,
     fontWeight: 'bold',
     color: theme.colors.text,
     marginLeft: 4,
@@ -1429,22 +1381,25 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   calcBox: {
-    marginTop: theme.spacing.sm,
+    marginTop: 8,
   },
   inputLabel: {
-    fontSize: theme.typography.small,
+    fontSize: 12,
     color: theme.colors.textSecondary,
     marginBottom: 4,
+    fontWeight: '600',
   },
   inputBox: {
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
-    padding: theme.spacing.sm,
-    fontSize: theme.typography.medium,
+    height: 44,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    backgroundColor: '#ffffff',
   },
   changeText: {
-    fontSize: theme.typography.regular,
+    fontSize: 13,
     color: theme.colors.success,
     marginTop: 4,
   },
@@ -1452,17 +1407,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   customerSelectBox: {
-    marginTop: theme.spacing.sm,
+    marginTop: 8,
   },
   customerOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: theme.spacing.sm,
+    padding: 10,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: '#f8fafc',
+    marginBottom: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.md,
-    marginBottom: 6,
   },
   customerOptionActive: {
     borderColor: theme.colors.primary,
@@ -1472,40 +1428,40 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customerOptionName: {
-    fontSize: theme.typography.regular,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: 'bold',
     color: theme.colors.text,
   },
   customerOptionDebt: {
-    fontSize: theme.typography.small,
+    fontSize: 11,
     color: theme.colors.danger,
+    marginTop: 2,
   },
   debtNotice: {
-    fontSize: theme.typography.small,
+    fontSize: 12,
     color: theme.colors.danger,
     marginTop: 4,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   confirmSaleBtn: {
     backgroundColor: theme.colors.primary,
-    padding: theme.spacing.md,
+    paddingVertical: 14,
     borderRadius: theme.borderRadius.full,
     alignItems: 'center',
-    marginTop: theme.spacing.md,
+    marginTop: 14,
+    elevation: 2,
   },
   confirmSaleBtnText: {
     color: '#ffffff',
-    fontSize: theme.typography.medium,
+    fontSize: 15,
     fontWeight: 'bold',
   },
-  /* Scanner Modal Styles */
   scannerModalCard: {
+    width: '100%',
+    maxWidth: 440,
     backgroundColor: '#ffffff',
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
-    width: '100%',
-    maxWidth: 440,
-    elevation: 8,
   },
   viewfinderFrame: {
     height: 140,
@@ -1513,258 +1469,72 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  viewfinderScanLine: {
-    position: 'absolute',
-    top: '50%',
-    left: 10,
-    right: 10,
-    height: 2,
-    backgroundColor: '#ef4444',
-    shadowColor: '#ef4444',
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
+    padding: 16,
   },
   viewfinderHelp: {
     color: '#94a3b8',
-    fontSize: 11,
-    marginTop: 8,
+    fontSize: 12,
     textAlign: 'center',
-    paddingHorizontal: 16,
+    marginTop: 8,
   },
   scannerInputRow: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginTop: 12,
   },
   scannerModalInput: {
     flex: 1,
-    borderWidth: 1.5,
-    borderColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: 10,
-    height: 40,
+    height: 44,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    paddingHorizontal: 12,
     fontSize: 14,
   },
   scannerModalValidateBtn: {
     backgroundColor: theme.colors.primary,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
+    borderRadius: theme.borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: theme.borderRadius.sm,
     marginLeft: 6,
   },
   scannerModalValidateBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 12,
-  },
-  scannerQuickTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: theme.colors.textSecondary,
-    marginBottom: 6,
-  },
-  scannerProductItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  scannerProdName: {
     fontSize: 13,
-    fontWeight: '600',
-    color: theme.colors.text,
   },
-  scannerProdCode: {
-    fontSize: 11,
-    color: theme.colors.textMuted,
-  },
-  scannerProdPrice: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: theme.colors.primary,
-  },
-  /* Receipt Modal Styles */
-  receiptContainer: {
-    backgroundColor: '#ffffff',
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.lg,
-    width: '100%',
-    maxWidth: 440,
-    maxHeight: '92%',
-    elevation: 8,
-  },
-  receiptContent: {
-    alignItems: 'center',
-  },
-  receiptStoreName: {
-    fontSize: theme.typography.header,
-    fontWeight: 'bold',
-    color: '#000000',
-  },
-  receiptSub: {
-    fontSize: 12,
-    color: '#666666',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  receiptDivider: {
-    color: '#999999',
-    letterSpacing: 2,
-    marginVertical: 4,
-  },
-  receiptDate: {
-    fontSize: 11,
-    color: '#444444',
-  },
-  receiptCashierText: {
-    fontSize: 11,
-    color: theme.colors.primary,
-    fontWeight: 'bold',
-    marginTop: 2,
-  },
-  receiptItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 2,
-  },
-  receiptItemName: {
-    fontSize: 12,
-    color: '#222222',
-  },
-  receiptItemTotal: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#222222',
-  },
-  receiptDiscountRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 2,
-  },
-  receiptDiscountLabel: {
-    fontSize: 12,
-    color: theme.colors.danger,
-  },
-  receiptDiscountVal: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: theme.colors.danger,
-  },
-  receiptTotalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 4,
-  },
-  receiptTotalLabel: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  receiptTotalVal: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: theme.colors.primary,
-  },
-  receiptMethod: {
-    fontSize: 11,
-    color: '#666666',
-    alignSelf: 'flex-start',
-    marginTop: 4,
-  },
-  receiptFooter: {
-    fontSize: 11,
-    fontStyle: 'italic',
-    color: '#666666',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  shareSectionBox: {
-    width: '100%',
-    marginTop: 14,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  shareSectionTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: theme.colors.textSecondary,
-    marginBottom: 8,
-  },
-  shareInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  shareInputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+  receiptPaper: {
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 4,
   },
-  shareInput: {
-    flex: 1,
-    height: 36,
+  receiptPaperText: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     fontSize: 12,
+    lineHeight: 18,
     color: theme.colors.text,
   },
-  whatsAppShareBtn: {
+  receiptModalActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#25D366',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: theme.borderRadius.sm,
-    marginLeft: 6,
+    marginTop: 14,
   },
-  emailShareBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#3b82f6',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: theme.borderRadius.sm,
-    marginLeft: 6,
-  },
-  shareBtnText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginLeft: 4,
-  },
-  receiptActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: theme.spacing.md,
-    gap: 6,
-  },
-  receiptPrintBtn: {
-    flex: 1.2,
+  receiptWhatsAppBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.primary,
+    backgroundColor: '#25D366',
     paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
+    marginRight: 6,
   },
-  receiptPrintBtnText: {
+  receiptActionText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 12,
-    marginLeft: 4,
+    fontSize: 13,
+    marginLeft: 6,
   },
   receiptCopyBtn: {
     flex: 1,
@@ -1775,45 +1545,11 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
-    backgroundColor: '#f8fafc',
   },
-  receiptCopyBtnText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: theme.colors.text,
-    marginLeft: 4,
-  },
-  receiptCloseBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    justifyContent: 'center',
-  },
-  receiptCloseBtnText: {
-    color: theme.colors.text,
+  receiptCopyText: {
+    fontSize: 13,
     fontWeight: '600',
-    fontSize: 12,
-  },
-  emptyProductsBox: {
-    width: '100%',
-    padding: theme.spacing.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 40,
-  },
-  emptyProductsTitle: {
-    fontSize: theme.typography.medium,
-    fontWeight: 'bold',
     color: theme.colors.text,
-    marginTop: 10,
-    textAlign: 'center',
-  },
-  emptyProductsSub: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 4,
+    marginLeft: 6,
   },
 });

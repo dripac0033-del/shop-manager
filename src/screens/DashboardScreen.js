@@ -12,6 +12,8 @@ export default function DashboardScreen({ navigation }) {
     customers = [],
     expenses = [],
     sales = [],
+    repairs = [],
+    services = [],
     isRTL,
     storeInfo,
     openStockModal,
@@ -26,54 +28,25 @@ export default function DashboardScreen({ navigation }) {
   const validSales = Array.isArray(sales) ? sales : [];
   const validProducts = Array.isArray(products) ? products : [];
   const validCustomers = Array.isArray(customers) ? customers : [];
+  const validRepairs = Array.isArray(repairs) ? repairs : [];
 
   const todaySales = validSales.filter((s) => (s.date || '').startsWith(today));
   const todayRevenue = todaySales.reduce((sum, s) => sum + Number(s.total || 0), 0);
   const todayProfit = todaySales.reduce((sum, s) => sum + Number(s.profit || 0), 0);
   const totalCustomerDebt = validCustomers.reduce((sum, c) => sum + Number(c.debt || 0), 0);
   const lowStockCount = validProducts.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length;
+  const pendingRepairsCount = validRepairs.filter((r) => r.status !== 'delivered' && r.status !== 'cancelled').length;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Live Two-Way Sync Bar */}
-      <View style={[styles.syncStatusBanner, isRTL && styles.rowReverse]}>
-        <View style={[styles.syncStatusLeft, isRTL && styles.rowReverse]}>
-          <View
-            style={[
-              styles.syncDot,
-              syncStatus === 'sending' || syncStatus === 'receiving'
-                ? styles.syncDotBlue
-                : firebaseConnected
-                ? styles.syncDotGreen
-                : styles.syncDotGray,
-            ]}
-          />
-          <Text style={styles.syncStatusText}>
-            {syncStatus === 'sending'
-              ? (isRTL ? 'مزامنة السحابة جارية...' : 'Envoi vers Firebase...')
-              : syncStatus === 'receiving'
-              ? (isRTL ? 'استقبال البيانات من فايربيس...' : 'Synchronisation directe Firebase...')
-              : firebaseConnected
-              ? (isRTL ? 'متصل بقاعدة البيانات السحابية فايربيس' : 'Connecté & synchronisé avec Firebase')
-              : (isRTL ? 'الوضع المحلي' : 'Mode Local')}
-          </Text>
-        </View>
-        <TouchableOpacity
-          style={{ flexDirection: 'row', alignItems: 'center' }}
-          onPress={refreshAllFromFirebase}
-        >
-          <Ionicons name="refresh" size={14} color={theme.colors.secondary} />
-          {lastSyncTime && (
-            <Text style={[styles.syncTimeText, { marginLeft: 4 }]}>{lastSyncTime}</Text>
-          )}
-        </TouchableOpacity>
-      </View>
       {/* Header Banner */}
       <View style={[styles.headerBanner, isRTL && styles.rowReverse]}>
         <View style={styles.storeDetails}>
           <Text style={styles.welcomeText}>{isRTL ? 'مرحباً بك في' : 'Bienvenue sur'}</Text>
-          <Text style={styles.storeName}>{storeInfo.name}</Text>
-          <Text style={styles.storePhone}>{storeInfo.phone} • {storeInfo.address}</Text>
+          <Text style={styles.storeName}>{storeInfo.name || 'Store Soft'}</Text>
+          <Text style={styles.storePhone}>
+            {storeInfo.phone || ''} {storeInfo.address ? `• ${storeInfo.address}` : ''}
+          </Text>
         </View>
         <TouchableOpacity 
           style={styles.settingsIconBtn} 
@@ -86,7 +59,10 @@ export default function DashboardScreen({ navigation }) {
       {/* KPI Cards Grid */}
       <View style={styles.kpiGrid}>
         {/* Today's Sales */}
-        <View style={[styles.kpiCard, { borderLeftColor: theme.colors.primary }]}>
+        <TouchableOpacity
+          style={[styles.kpiCard, { borderLeftColor: theme.colors.primary }]}
+          onPress={() => navigation.navigate('Reports')}
+        >
           <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
             <Text style={styles.kpiTitle}>{t('todaySales')}</Text>
             <View style={[styles.kpiIconWrapper, { backgroundColor: theme.colors.primaryLight }]}>
@@ -95,7 +71,7 @@ export default function DashboardScreen({ navigation }) {
           </View>
           <Text style={styles.kpiValue}>{formatMoney(todayRevenue)}</Text>
           <Text style={styles.kpiSubtitle}>{todaySales.length} {t('itemsCount')}</Text>
-        </View>
+        </TouchableOpacity>
 
         {/* Today's Profit */}
         <View style={[styles.kpiCard, { borderLeftColor: theme.colors.secondary }]}>
@@ -124,6 +100,21 @@ export default function DashboardScreen({ navigation }) {
           <Text style={styles.kpiSubtitle}>{isRTL ? 'إجمالي مستحقات الزبائن' : 'Créances à recouvrer'}</Text>
         </TouchableOpacity>
 
+        {/* Pending Repairs Counter */}
+        <TouchableOpacity 
+          style={[styles.kpiCard, { borderLeftColor: '#8b5cf6' }]}
+          onPress={() => navigation.navigate('ServicesRepairs')}
+        >
+          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
+            <Text style={styles.kpiTitle}>{isRTL ? 'أجهزة قيد الصيانة' : 'Réparations en cours'}</Text>
+            <View style={[styles.kpiIconWrapper, { backgroundColor: '#ede9fe' }]}>
+              <Ionicons name="hardware-chip" size={20} color="#8b5cf6" />
+            </View>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#8b5cf6' }]}>{pendingRepairsCount} {isRTL ? 'أجهزة' : 'dossiers'}</Text>
+          <Text style={styles.kpiSubtitle}>{isRTL ? 'في ورشة الصيانة' : 'En atelier'}</Text>
+        </TouchableOpacity>
+
         {/* Low Stock Alert */}
         <TouchableOpacity 
           style={[styles.kpiCard, { borderLeftColor: theme.colors.warning }]}
@@ -138,6 +129,21 @@ export default function DashboardScreen({ navigation }) {
           <Text style={[styles.kpiValue, { color: theme.colors.warning }]}>{lowStockCount} {isRTL ? 'سلع' : 'articles'}</Text>
           <Text style={styles.kpiSubtitle}>{isRTL ? 'تحت الحد الأدنى' : 'Nécessite réapprovisionnement'}</Text>
         </TouchableOpacity>
+
+        {/* Active Catalog Total */}
+        <TouchableOpacity 
+          style={[styles.kpiCard, { borderLeftColor: '#0284c7' }]}
+          onPress={() => navigation.navigate('Products')}
+        >
+          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
+            <Text style={styles.kpiTitle}>{isRTL ? 'إجمالي المنتجات' : 'Articles & Services'}</Text>
+            <View style={[styles.kpiIconWrapper, { backgroundColor: '#e0f2fe' }]}>
+              <Ionicons name="cube" size={20} color="#0284c7" />
+            </View>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#0284c7' }]}>{validProducts.length + services.length}</Text>
+          <Text style={styles.kpiSubtitle}>{validProducts.length} {isRTL ? 'منتج' : 'produits'} + {services.length} {isRTL ? 'خدمات' : 'services'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Quick Action Buttons */}
@@ -147,7 +153,7 @@ export default function DashboardScreen({ navigation }) {
           style={[styles.actionBtn, { backgroundColor: theme.colors.primary }]}
           onPress={() => navigation.navigate('POS')}
         >
-          <Ionicons name="barcode" size={28} color="#ffffff" />
+          <Ionicons name="barcode" size={26} color="#ffffff" />
           <Text style={styles.actionBtnText}>{t('newSale')}</Text>
         </TouchableOpacity>
 
@@ -155,23 +161,31 @@ export default function DashboardScreen({ navigation }) {
           style={[styles.actionBtn, { backgroundColor: theme.colors.secondary }]}
           onPress={() => navigation.navigate('Products')}
         >
-          <Ionicons name="add-circle" size={28} color="#ffffff" />
+          <Ionicons name="cube" size={26} color="#ffffff" />
           <Text style={styles.actionBtnText}>{t('addProduct')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
-          style={[styles.actionBtn, { backgroundColor: '#7c3aed' }]}
+          style={[styles.actionBtn, { backgroundColor: '#8b5cf6' }]}
+          onPress={() => navigation.navigate('ServicesRepairs')}
+        >
+          <Ionicons name="construct" size={26} color="#ffffff" />
+          <Text style={styles.actionBtnText}>{t('servicesRepairs')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.actionBtn, { backgroundColor: '#dc2626' }]}
           onPress={() => navigation.navigate('Expenses')}
         >
-          <Ionicons name="cash-outline" size={28} color="#ffffff" />
-          <Text style={styles.actionBtnText}>{t('newExpense')}</Text>
+          <Ionicons name="cash-outline" size={26} color="#ffffff" />
+          <Text style={styles.actionBtnText}>{t('expenses')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
           style={[styles.actionBtn, { backgroundColor: '#0284c7' }]}
           onPress={() => navigation.navigate('Customers')}
         >
-          <Ionicons name="person-add" size={28} color="#ffffff" />
+          <Ionicons name="people" size={26} color="#ffffff" />
           <Text style={styles.actionBtnText}>{t('newCustomer')}</Text>
         </TouchableOpacity>
       </View>
@@ -287,9 +301,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     borderLeftWidth: 4,
     marginBottom: theme.spacing.md,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 5,
     elevation: 2,
   },
   kpiHeader: {
@@ -341,23 +352,25 @@ const styles = StyleSheet.create({
   },
   actionButtonsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     marginBottom: theme.spacing.lg,
   },
   actionBtn: {
-    width: '23%',
+    width: '18%',
     aspectRatio: 1,
     borderRadius: theme.borderRadius.md,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: theme.spacing.xs,
+    padding: 4,
     elevation: 2,
+    marginBottom: 6,
   },
   actionBtnText: {
     color: '#ffffff',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: 'bold',
-    marginTop: 6,
+    marginTop: 4,
     textAlign: 'center',
   },
   emptyContainer: {
@@ -425,45 +438,5 @@ const styles = StyleSheet.create({
     fontSize: theme.typography.small,
     color: theme.colors.secondary,
     fontWeight: '600',
-  },
-  syncStatusBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    marginBottom: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 6,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  syncStatusLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  syncDotGreen: {
-    backgroundColor: theme.colors.success,
-  },
-  syncDotBlue: {
-    backgroundColor: theme.colors.secondary,
-  },
-  syncDotGray: {
-    backgroundColor: theme.colors.textMuted,
-  },
-  syncStatusText: {
-    fontSize: 11,
-    color: theme.colors.textSecondary,
-    fontWeight: '600',
-  },
-  syncTimeText: {
-    fontSize: 10,
-    color: theme.colors.textMuted,
   },
 });

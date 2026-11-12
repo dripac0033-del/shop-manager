@@ -23,6 +23,7 @@ export default function ReportsScreen() {
     products = [],
     expenses = [],
     customers = [],
+    processSaleReturn,
     isRTL,
     storeInfo,
     firebaseConnected,
@@ -32,12 +33,24 @@ export default function ReportsScreen() {
   } = useApp();
 
   const [period, setPeriod] = useState('month'); // 'today' | 'week' | 'month' | 'all'
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
   const [selectedSale, setSelectedSale] = useState(null);
   const [sharePhone, setSharePhone] = useState('');
   const [shareEmail, setShareEmail] = useState('');
   const [copiedTicket, setCopiedTicket] = useState(false);
 
-  // Filter sales & expenses by period
+  // Return Modal State
+  const [returnModalVisible, setReturnModalVisible] = useState(false);
+  const [returnSaleTarget, setReturnSaleTarget] = useState(null);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnQtyInputs, setReturnQtyInputs] = useState({});
+  const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3500);
+  };
+
   const now = new Date();
   const validSales = Array.isArray(sales) ? sales : [];
   const validProducts = Array.isArray(products) ? products : [];
@@ -46,19 +59,30 @@ export default function ReportsScreen() {
   const filteredSales = validSales.filter((s) => {
     if (!s || !s.date) return false;
     const saleDate = new Date(s.date);
+    let matchPeriod = true;
+
     if (period === 'today') {
-      return saleDate.toDateString() === now.toDateString();
-    }
-    if (period === 'week') {
+      matchPeriod = saleDate.toDateString() === now.toDateString();
+    } else if (period === 'week') {
       const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return saleDate >= oneWeekAgo;
-    }
-    if (period === 'month') {
-      return (
+      matchPeriod = saleDate >= oneWeekAgo;
+    } else if (period === 'month') {
+      matchPeriod =
         saleDate.getMonth() === now.getMonth() &&
-        saleDate.getFullYear() === now.getFullYear()
-      );
+        saleDate.getFullYear() === now.getFullYear();
     }
+
+    if (!matchPeriod) return false;
+
+    if (salesSearchQuery.trim()) {
+      const q = salesSearchQuery.toLowerCase().trim();
+      const idMatch = (s.id || '').toLowerCase().includes(q);
+      const cashierMatch = (s.cashierName || s.cashier || '').toLowerCase().includes(q);
+      const cust = (customers || []).find((c) => c.id === s.customerId);
+      const custMatch = cust ? cust.name.toLowerCase().includes(q) : false;
+      return idMatch || cashierMatch || custMatch;
+    }
+
     return true;
   });
 
@@ -113,7 +137,66 @@ export default function ReportsScreen() {
     .filter((p) => p.soldQty > 0)
     .sort((a, b) => b.soldQty - a.soldQty);
 
-  // Generate Receipt Text for sharing
+  // Open Return Modal
+  const handleOpenReturnModal = (sale) => {
+    setReturnSaleTarget(sale);
+    setReturnReason('');
+    const initialQty = {};
+    (sale.items || []).forEach((i) => {
+      initialQty[i.id] = String(i.quantity);
+    });
+    setReturnQtyInputs(initialQty);
+    setReturnModalVisible(true);
+  };
+
+  // Submit Sale Return
+  const handleConfirmReturn = async () => {
+    if (!returnSaleTarget) return;
+
+    const itemsToReturn = [];
+    let calculatedRefund = 0;
+
+    (returnSaleTarget.items || []).forEach((i) => {
+      const q = Number(returnQtyInputs[i.id] || 0);
+      if (q > 0) {
+        const returnCount = Math.min(q, i.quantity);
+        itemsToReturn.push({
+          ...i,
+          quantity: returnCount,
+        });
+        calculatedRefund += returnCount * Number(i.sellPrice || 0);
+      }
+    });
+
+    if (itemsToReturn.length === 0) {
+      Alert.alert(t('processReturn'), isRTL ? 'يرجى تحديد كمية صالحة للإرجاع!' : 'Veuillez saisir une quantité valide à retourner !');
+      return;
+    }
+
+    setReturnModalVisible(false);
+
+    try {
+      await processSaleReturn(returnSaleTarget.id, {
+        itemsToReturn,
+        returnReason: returnReason.trim() || 'Retour client',
+        refundAmount: calculatedRefund,
+      });
+
+      showToast(
+        isRTL
+          ? `✅ تم تسجيل الإرجاع وتحديث المخزون بنجاح (المبلغ المسترجع: ${formatMoney(calculatedRefund)})`
+          : `✅ Retour enregistré et stock réintégré (+${formatMoney(calculatedRefund)})`
+      );
+
+      if (selectedSale && selectedSale.id === returnSaleTarget.id) {
+        setSelectedSale(null);
+      }
+    } catch (err) {
+      console.warn('Error processing return:', err);
+    }
+  };
+
+  // Generate Receipt Text for sharing with return dates
   const generateReceiptText = (sale) => {
     if (!sale) return '';
     const dateStr = sale.date ? new Date(sale.date).toLocaleString() : new Date().toLocaleString();
@@ -124,7 +207,7 @@ export default function ReportsScreen() {
     if (storeInfo.address) lines.push(`📍 ${storeInfo.address}`);
     if (storeInfo.phone) lines.push(`📞 ${storeInfo.phone}`);
     lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
-    lines.push(`📅 Date : ${dateStr}`);
+    lines.push(`📅 Date Vente : ${dateStr}`);
     if (sale.cashierName || sale.cashier) {
       lines.push(`👤 Caissier : ${sale.cashierName || sale.cashier}`);
     }
@@ -143,6 +226,22 @@ export default function ReportsScreen() {
     }
     lines.push(`💰 *TOTAL : ${formatMoney(sale.total)}*`);
     lines.push(`Mode : ${sale.paymentMethod === 'cash' ? 'Espèces' : 'Crédit'}`);
+
+    // If returns exist, include them with their return dates
+    if (sale.returns && sale.returns.length > 0) {
+      lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
+      lines.push(`🔄 *HISTORIQUE DES RETOURS :*`);
+      sale.returns.forEach((ret, idx) => {
+        const retDateStr = ret.dateRetour ? new Date(ret.dateRetour).toLocaleString() : '';
+        lines.push(`[Retour #${idx + 1}] Date : ${retDateStr}`);
+        lines.push(`Motif : ${ret.reason || 'Retour'}`);
+        (ret.items || []).forEach((rItem) => {
+          lines.push(`  - ${rItem.nameFr || rItem.nameAr} x${rItem.quantity}`);
+        });
+        lines.push(`  Remboursé : ${formatMoney(ret.refundAmount)}`);
+      });
+    }
+
     lines.push(`━━━━━━━━━━━━━━━━━━━━━`);
     lines.push(storeInfo.footer || 'Merci pour votre visite !');
     return lines.join('\n');
@@ -169,7 +268,7 @@ export default function ReportsScreen() {
 
   const handleSendEmail = (sale) => {
     const text = generateReceiptText(sale);
-    const subject = `Facture / Ticket - ${storeInfo.name || 'Store Soft'}`;
+    const subject = `Facture / Ticket #${sale.id.slice(-6)} - ${storeInfo.name || 'Store Soft'}`;
     const cleanMail = (shareEmail || '').trim();
     const mailto = `mailto:${cleanMail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
 
@@ -200,30 +299,32 @@ export default function ReportsScreen() {
 
     const headers = [
       'ID Vente',
-      'Date',
-      'Heure',
+      'Date Vente',
+      'Statut',
       'Caissier',
       'Mode Paiement',
-      'Nombre Articles',
-      'Sous-Total',
-      'Remise',
+      'Articles',
       'Total Net DZD',
       'Marge Benefice DZD',
+      'Historique Retours & Dates',
     ];
 
     const rows = filteredSales.map((s) => {
       const d = s.date ? new Date(s.date) : new Date();
+      const returnsSummary = (s.returns || [])
+        .map((r) => `${r.dateRetour ? new Date(r.dateRetour).toLocaleDateString() : ''}: Remboursé ${r.refundAmount} DA (${r.reason})`)
+        .join(' | ');
+
       return [
         `"${s.id || ''}"`,
-        `"${d.toLocaleDateString()}"`,
-        `"${d.toLocaleTimeString()}"`,
+        `"${d.toLocaleDateString()} ${d.toLocaleTimeString()}"`,
+        `"${s.status || 'completed'}"`,
         `"${(s.cashierName || s.cashier || 'Admin').replace(/"/g, '""')}"`,
         `"${s.paymentMethod || 'cash'}"`,
         (s.items || []).length,
-        s.subtotal || s.total || 0,
-        s.discount || 0,
         s.total || 0,
         s.profit || 0,
+        `"${returnsSummary.replace(/"/g, '""')}"`,
       ];
     });
 
@@ -234,62 +335,25 @@ export default function ReportsScreen() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.setAttribute('href', url);
-      link.setAttribute('download', `rapport_ventes_${period}_${new Date().toISOString().slice(0, 10)}.csv`);
+      link.setAttribute('download', `ventes_retours_${new Date().toISOString().slice(0, 10)}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } else {
-      Alert.alert('CSV', isRTL ? 'تم تصدير تقرير المبيعات بنجاح!' : 'Rapport des ventes exporté avec succès !');
-    }
-  };
-
-  // Print Summary Financial Report
-  const handlePrintSummary = () => {
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.print) {
-      window.print();
-    } else {
-      Alert.alert(
-        isRTL ? 'طباعة التقرير' : 'Imprimer le bilan',
-        isRTL
-          ? `الإيرادات: ${formatMoney(totalRevenue)}\nالمصاريف: ${formatMoney(totalExpenses)}\nالأرباح الصافية: ${formatMoney(netProfit)}`
-          : `Revenus : ${formatMoney(totalRevenue)}\nCharges : ${formatMoney(totalExpenses)}\nBénéfice Net : ${formatMoney(netProfit)}`
-      );
+      Alert.alert('CSV', isRTL ? 'تم تصدير ملف المبيعات بنجاح!' : 'Fichier CSV des ventes exporté avec succès !');
     }
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Live Two-Way Sync Bar with Refresh */}
-      <View style={[styles.syncStatusBanner, isRTL && styles.rowReverse]}>
-        <View style={[styles.syncStatusLeft, isRTL && styles.rowReverse]}>
-          <View
-            style={[
-              styles.syncDot,
-              syncStatus === 'sending' || syncStatus === 'receiving'
-                ? styles.syncDotBlue
-                : firebaseConnected
-                ? styles.syncDotGreen
-                : styles.syncDotGray,
-            ]}
-          />
-          <Text style={styles.syncStatusText}>
-            {syncStatus === 'sending'
-              ? (isRTL ? 'تحديث الإحصائيات...' : 'Mise à jour en cours...')
-              : syncStatus === 'receiving'
-              ? (isRTL ? 'مزامنة المعاملات مباشرة مع فايربيس...' : 'Synchronisation directe Firebase...')
-              : firebaseConnected
-              ? (isRTL ? 'إحصائيات مباشرة من فايربيس' : 'Statistiques directes Firebase')
-              : (isRTL ? 'الوضع المحلي' : 'Mode Local')}
-          </Text>
+      {/* Toast Feedback */}
+      {toastMessage ? (
+        <View style={styles.toastBanner}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
         </View>
+      ) : null}
 
-        <TouchableOpacity style={styles.syncRefreshBtn} onPress={refreshAllFromFirebase}>
-          <Ionicons name="refresh" size={14} color={theme.colors.secondary} />
-          {lastSyncTime && <Text style={styles.syncTimeText}>{lastSyncTime}</Text>}
-        </TouchableOpacity>
-      </View>
-
-      {/* Period Selector Tabs & Print Report Button */}
+      {/* Period Selector Tabs */}
       <View style={[styles.periodRow, isRTL && styles.rowReverse]}>
         {[
           { key: 'today', label: t('today') },
@@ -312,13 +376,9 @@ export default function ReportsScreen() {
             </Text>
           </TouchableOpacity>
         ))}
-
-        <TouchableOpacity style={styles.printSummaryBtn} onPress={handlePrintSummary} title="Imprimer">
-          <Ionicons name="print-outline" size={16} color="#ffffff" />
-        </TouchableOpacity>
       </View>
 
-      {/* Net Profit Big Banner */}
+      {/* Net Profit Banner */}
       <View
         style={[
           styles.netProfitCard,
@@ -329,7 +389,7 @@ export default function ReportsScreen() {
         <Text style={styles.netProfitAmount}>{formatMoney(netProfit)}</Text>
         <Text style={styles.netProfitDesc}>
           {isRTL
-            ? 'الأرباح المحققة بعد خصم سعر الشراء وإجمالي المصاريف'
+            ? 'الأرباح الصافية بعد خصم سعر الشراء وإجمالي المصاريف'
             : 'Bénéfice calculé : Ventes - Prix Achat - Dépenses'}
         </Text>
       </View>
@@ -357,7 +417,7 @@ export default function ReportsScreen() {
         </View>
       </View>
 
-      {/* Inventory Valuation Section */}
+      {/* Inventory Valuation */}
       <Text style={[styles.sectionTitle, isRTL && styles.textRight]}>
         {isRTL ? 'تقييم المخزون الحالي' : 'Valeur du Stock Actuel'}
       </Text>
@@ -418,11 +478,12 @@ export default function ReportsScreen() {
         ))
       )}
 
-      {/* Transactions & Cashiers log with CSV Export */}
+      {/* SALES HISTORY & RETURNS MANAGEMENT */}
       <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
-        <Text style={styles.sectionTitle}>
-          {isRTL ? 'سجل المعاملات والصيارفة' : 'Historique des Ventes & Caissiers'}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="time" size={20} color={theme.colors.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('salesHistory')}</Text>
+        </View>
 
         <TouchableOpacity style={styles.exportSalesBtn} onPress={handleExportSalesCSV}>
           <Ionicons name="download-outline" size={14} color="#ffffff" />
@@ -430,64 +491,187 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Search in Sales History */}
+      <View style={[styles.searchBar, isRTL && styles.rowReverse]}>
+        <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
+        <TextInput
+          style={[styles.searchInput, isRTL && styles.textRight]}
+          placeholder={isRTL ? 'بحث برقم الوصل، البائع أو الزبون...' : 'Recherche par N° ticket, caissier ou client...'}
+          value={salesSearchQuery}
+          onChangeText={setSalesSearchQuery}
+        />
+        {salesSearchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSalesSearchQuery('')}>
+            <Ionicons name="close-circle" size={16} color={theme.colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {filteredSales.length === 0 ? (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyText}>
-            {isRTL ? 'لا توجد معاملات مسجلة' : 'Aucune transaction enregistrée'}
+            {isRTL ? 'لا توجد مبيعات مطابقة' : 'Aucune vente enregistrée'}
           </Text>
         </View>
       ) : (
-        filteredSales.slice(0, 15).map((s) => {
+        filteredSales.map((s) => {
           const dateStr = s.date ? new Date(s.date).toLocaleDateString() : '';
           const timeStr = s.date ? new Date(s.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          const hasReturns = s.returns && s.returns.length > 0;
+
           return (
-            <TouchableOpacity
-              key={s.id}
-              style={[styles.transactionCard, isRTL && styles.rowReverse]}
-              onPress={() => {
-                setSelectedSale(s);
-                const cust = (customers || []).find((c) => c.id === s.customerId);
-                setSharePhone(cust?.phone || '');
-                setShareEmail('');
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.txIconBox, s.paymentMethod === 'credit' ? styles.bgCredit : styles.bgCash]}>
-                <Ionicons
-                  name={s.paymentMethod === 'credit' ? 'card-outline' : 'cash-outline'}
-                  size={20}
-                  color="#ffffff"
-                />
+            <View key={s.id} style={styles.saleHistoryCard}>
+              <View style={[styles.saleHeaderRow, isRTL && styles.rowReverse]}>
+                <View style={[styles.saleHeaderLeft, isRTL && styles.rowReverse]}>
+                  <View style={[styles.txIconBox, s.paymentMethod === 'credit' ? styles.bgCredit : styles.bgCash]}>
+                    <Ionicons
+                      name={s.paymentMethod === 'credit' ? 'card-outline' : 'cash-outline'}
+                      size={18}
+                      color="#ffffff"
+                    />
+                  </View>
+                  <View style={isRTL && styles.alignRight}>
+                    <Text style={styles.saleIdText}>#{s.id.slice(-6).toUpperCase()}</Text>
+                    <Text style={styles.saleDateTimeText}>{dateStr} • {timeStr}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.saleHeaderRight}>
+                  <Text style={styles.saleTotalText}>{formatMoney(s.total)}</Text>
+                  {hasReturns && (
+                    <View style={styles.returnedTag}>
+                      <Ionicons name="return-up-back" size={11} color="#b45309" />
+                      <Text style={styles.returnedTagText}>{isRTL ? 'تم الإرجاع' : 'Retour effectué'}</Text>
+                    </View>
+                  )}
+                </View>
               </View>
 
-              <View style={[styles.txMeta, isRTL && styles.alignRight]}>
-                <Text style={styles.txTotal}>{formatMoney(s.total)}</Text>
-                <Text style={styles.txDetails}>
-                  {(s.items || []).length} {isRTL ? 'سلع' : 'articles'} • {dateStr} {timeStr}
+              {/* Items in this sale preview */}
+              <View style={styles.saleItemsSummaryBox}>
+                <Text style={[styles.saleItemsSummaryText, isRTL && styles.textRight]}>
+                  {(s.items || []).map((i) => `${i.nameFr || i.nameAr} (x${i.quantity})`).join(', ')}
                 </Text>
-                <View style={[styles.cashierBadge, isRTL && styles.rowReverse]}>
-                  <Ionicons name="person" size={11} color={theme.colors.primary} />
-                  <Text style={styles.cashierBadgeText}>
-                    {isRTL ? 'البائع:' : 'Caissier :'} {s.cashierName || s.cashier || 'Admin'}
-                  </Text>
-                </View>
               </View>
 
-              <View style={styles.txProfitBox}>
-                <Text style={styles.txProfitText}>+{formatMoney(s.profit || 0)}</Text>
-                <View style={styles.ticketActionPill}>
-                  <Ionicons name="receipt-outline" size={12} color={theme.colors.primary} />
-                  <Text style={styles.ticketActionPillText}>
-                    {isRTL ? 'التذكرة' : 'Ticket'}
-                  </Text>
+              {/* Return dates & details preview if returned */}
+              {hasReturns && (
+                <View style={styles.returnDatesContainer}>
+                  {s.returns.map((ret, rIdx) => {
+                    const retDateStr = ret.dateRetour ? new Date(ret.dateRetour).toLocaleString() : '';
+                    return (
+                      <View key={rIdx} style={[styles.returnDateRow, isRTL && styles.rowReverse]}>
+                        <Ionicons name="calendar-outline" size={13} color="#b45309" />
+                        <Text style={styles.returnDateText}>
+                          {isRTL ? 'تاريخ الإرجاع:' : 'Date de retour :'} {retDateStr} • {isRTL ? 'استرجاع:' : 'Remboursé :'} -{formatMoney(ret.refundAmount)}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
+              )}
+
+              {/* Action buttons */}
+              <View style={[styles.saleActionsRow, isRTL && styles.rowReverse]}>
+                <TouchableOpacity
+                  style={styles.saleDetailBtn}
+                  onPress={() => {
+                    setSelectedSale(s);
+                    const cust = (customers || []).find((c) => c.id === s.customerId);
+                    setSharePhone(cust?.phone || '');
+                    setShareEmail('');
+                  }}
+                >
+                  <Ionicons name="receipt-outline" size={14} color={theme.colors.primary} />
+                  <Text style={styles.saleDetailBtnText}>{isRTL ? 'عرض التذكرة' : 'Voir Ticket'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.saleReturnBtn}
+                  onPress={() => handleOpenReturnModal(s)}
+                >
+                  <Ionicons name="return-down-back-outline" size={14} color="#b45309" />
+                  <Text style={styles.saleReturnBtnText}>{isRTL ? 'إرجاع سلع' : 'Retour / Avoir'}</Text>
+                </TouchableOpacity>
               </View>
-            </TouchableOpacity>
+            </View>
           );
         })
       )}
 
-      {/* Sale Detail / Receipt Modal (Print, WhatsApp, Email) */}
+      {/* Return Modal (Effectuer un retour avec dates & réintégration au stock) */}
+      <Modal visible={returnModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="return-up-back" size={22} color="#b45309" style={{ marginRight: 6 }} />
+                <Text style={styles.modalTitle}>
+                  {isRTL ? 'إجراء إرجاع سلع للوصل' : 'Effectuer un Retour / Avoir'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setReturnModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {returnSaleTarget && (
+              <ScrollView style={{ maxHeight: 440 }}>
+                <View style={styles.returnInfoNotice}>
+                  <Text style={styles.returnNoticeTitle}>
+                    {isRTL ? 'تاريخ الإرجاع المسجل:' : 'Date de retour enregistrée :'} {new Date().toLocaleString()}
+                  </Text>
+                  <Text style={styles.returnNoticeSub}>
+                    {isRTL
+                      ? 'سيتم إعادة السلع المرجعة تلقائياً إلى المخزون وتسجيل حركة في المعاملات المالية.'
+                      : 'Les quantités retournées seront réintégrées automatiquement au stock.'}
+                  </Text>
+                </View>
+
+                {/* Items to return selection */}
+                <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                  {isRTL ? 'السلع والكميات المرجعة:' : 'Articles & Quantités à retourner :'}
+                </Text>
+                {(returnSaleTarget.items || []).map((item) => (
+                  <View key={item.id} style={[styles.returnItemRow, isRTL && styles.rowReverse]}>
+                    <View style={styles.returnItemDesc}>
+                      <Text style={styles.returnItemName}>{item.nameFr || item.nameAr}</Text>
+                      <Text style={styles.returnItemPrice}>
+                        {formatMoney(item.sellPrice)} • {isRTL ? 'الكمية الأصلية:' : 'Acheté :'} x{item.quantity}
+                      </Text>
+                    </View>
+
+                    <View style={styles.returnQtyBox}>
+                      <Text style={styles.returnQtyLabel}>{isRTL ? 'كمية الإرجاع:' : 'Retourner :'}</Text>
+                      <TextInput
+                        style={styles.returnQtyInput}
+                        keyboardType="numeric"
+                        value={returnQtyInputs[item.id] !== undefined ? returnQtyInputs[item.id] : String(item.quantity)}
+                        onChangeText={(txt) => setReturnQtyInputs({ ...returnQtyInputs, [item.id]: txt })}
+                      />
+                    </View>
+                  </View>
+                ))}
+
+                <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('returnReason')}</Text>
+                <TextInput
+                  style={[styles.inputBox, isRTL && styles.textRight]}
+                  placeholder={isRTL ? 'سبب الإرجاع (منتج معطوب، تبديل، رغبة الزبون...)' : 'Motif (Défectueux, échange, demande client...)'}
+                  value={returnReason}
+                  onChangeText={setReturnReason}
+                />
+
+                <TouchableOpacity style={styles.confirmReturnBtn} onPress={handleConfirmReturn}>
+                  <Ionicons name="checkmark-done" size={18} color="#ffffff" />
+                  <Text style={styles.confirmReturnBtnText}>{t('confirmReturn')}</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Sale Detail / Receipt Modal */}
       <Modal visible={!!selectedSale} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.receiptContainer}>
@@ -534,30 +718,31 @@ export default function ReportsScreen() {
                 <Text style={styles.receiptTotalVal}>{formatMoney(selectedSale?.total || 0)}</Text>
               </View>
 
-              <Text style={styles.receiptMethod}>
-                {t('paymentMethod')}: {selectedSale?.paymentMethod === 'cash' ? t('cash') : t('credit')}
-              </Text>
+              {/* Return dates history displayed in receipt */}
+              {selectedSale?.returns && selectedSale.returns.length > 0 && (
+                <View style={styles.receiptReturnsBox}>
+                  <Text style={styles.receiptReturnsTitle}>*** RETOURS EFFECTUES ***</Text>
+                  {selectedSale.returns.map((ret, idx) => (
+                    <Text key={idx} style={styles.receiptReturnLine}>
+                      Date: {ret.dateRetour ? new Date(ret.dateRetour).toLocaleString() : ''} | Remboursé: -{formatMoney(ret.refundAmount)}
+                    </Text>
+                  ))}
+                </View>
+              )}
 
               <Text style={styles.receiptDivider}>--------------------------------</Text>
               <Text style={styles.receiptFooter}>{storeInfo.footer || 'Merci pour votre visite !'}</Text>
 
               {/* Direct WhatsApp & Email Send */}
               <View style={styles.shareSectionBox}>
-                <Text style={[styles.shareSectionTitle, isRTL && styles.textRight]}>
-                  {isRTL ? 'إرسال الفاتورة للزبون :' : 'Envoyer la facture au client :'}
-                </Text>
-
                 <View style={[styles.shareInputRow, isRTL && styles.rowReverse]}>
-                  <View style={styles.shareInputWrapper}>
-                    <Ionicons name="logo-whatsapp" size={16} color="#25D366" style={{ marginHorizontal: 6 }} />
-                    <TextInput
-                      style={[styles.shareInput, isRTL && styles.textRight]}
-                      placeholder="0555... / +213"
-                      keyboardType="phone-pad"
-                      value={sharePhone}
-                      onChangeText={setSharePhone}
-                    />
-                  </View>
+                  <TextInput
+                    style={[styles.shareInput, isRTL && styles.textRight]}
+                    placeholder="0555... / WhatsApp"
+                    keyboardType="phone-pad"
+                    value={sharePhone}
+                    onChangeText={setSharePhone}
+                  />
                   <TouchableOpacity
                     style={styles.whatsAppShareBtn}
                     onPress={() => handleSendWhatsApp(selectedSale)}
@@ -568,17 +753,14 @@ export default function ReportsScreen() {
                 </View>
 
                 <View style={[styles.shareInputRow, isRTL && styles.rowReverse]}>
-                  <View style={styles.shareInputWrapper}>
-                    <Ionicons name="mail-outline" size={16} color="#3b82f6" style={{ marginHorizontal: 6 }} />
-                    <TextInput
-                      style={[styles.shareInput, isRTL && styles.textRight]}
-                      placeholder="email@client.com"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      value={shareEmail}
-                      onChangeText={setShareEmail}
-                    />
-                  </View>
+                  <TextInput
+                    style={[styles.shareInput, isRTL && styles.textRight]}
+                    placeholder="email@client.com"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={shareEmail}
+                    onChangeText={setShareEmail}
+                  />
                   <TouchableOpacity
                     style={styles.emailShareBtn}
                     onPress={() => handleSendEmail(selectedSale)}
@@ -652,50 +834,18 @@ const styles = StyleSheet.create({
   alignRight: {
     alignItems: 'flex-end',
   },
-  syncStatusBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    marginBottom: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 6,
+  toastBanner: {
+    backgroundColor: '#10b981',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    marginBottom: 12,
   },
-  syncStatusLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  syncDotGreen: {
-    backgroundColor: theme.colors.success,
-  },
-  syncDotBlue: {
-    backgroundColor: theme.colors.secondary,
-  },
-  syncDotGray: {
-    backgroundColor: theme.colors.textMuted,
-  },
-  syncStatusText: {
-    fontSize: 11,
-    color: theme.colors.textSecondary,
-    fontWeight: '600',
-  },
-  syncRefreshBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  syncTimeText: {
-    fontSize: 10,
-    color: theme.colors.textMuted,
-    marginLeft: 4,
+  toastText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+    textAlign: 'center',
   },
   periodRow: {
     flexDirection: 'row',
@@ -723,15 +873,6 @@ const styles = StyleSheet.create({
   },
   periodTabTextActive: {
     color: '#ffffff',
-  },
-  printSummaryBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: theme.colors.secondary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 4,
   },
   netProfitCard: {
     padding: theme.spacing.lg,
@@ -801,15 +942,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#059669',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: theme.borderRadius.sm,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
   },
   exportSalesBtnText: {
     color: '#ffffff',
     fontSize: 11,
     fontWeight: 'bold',
-    marginLeft: 3,
+    marginLeft: 4,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    height: 40,
+    marginBottom: 12,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    marginLeft: 6,
+    fontSize: 13,
   },
   inventoryCard: {
     backgroundColor: theme.colors.surface,
@@ -822,41 +980,27 @@ const styles = StyleSheet.create({
   inventoryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: theme.colors.border,
   },
   noBorder: {
     borderBottomWidth: 0,
   },
   invLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: theme.colors.textSecondary,
-    fontWeight: '500',
   },
   invVal: {
     fontSize: 13,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
-  emptyCard: {
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  emptyText: {
-    fontSize: 12,
-    color: theme.colors.textMuted,
-  },
   topProductRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
-    padding: theme.spacing.sm,
+    padding: 10,
     borderRadius: theme.borderRadius.md,
     marginBottom: 6,
     borderWidth: 1,
@@ -865,23 +1009,23 @@ const styles = StyleSheet.create({
   rankBadge: {
     width: 28,
     height: 28,
-    borderRadius: theme.borderRadius.full,
-    backgroundColor: theme.colors.secondaryLight,
+    borderRadius: 14,
+    backgroundColor: theme.colors.primaryLight,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: theme.spacing.sm,
+    marginRight: 10,
   },
   rankText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: theme.colors.secondary,
+    color: theme.colors.primary,
   },
   topProductMeta: {
     flex: 1,
   },
   topProductName: {
-    fontSize: theme.typography.regular,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: 'bold',
     color: theme.colors.text,
   },
   topProductCat: {
@@ -892,87 +1036,152 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   soldQtyText: {
-    fontSize: theme.typography.small,
-    fontWeight: 'bold',
-    color: theme.colors.primary,
-  },
-  soldTotalText: {
-    fontSize: 11,
-    color: theme.colors.textMuted,
-  },
-  transactionCard: {
-    backgroundColor: theme.colors.surface,
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.md,
-    marginBottom: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    elevation: 1,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  txIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  bgCash: {
-    backgroundColor: theme.colors.primary,
-  },
-  bgCredit: {
-    backgroundColor: theme.colors.danger,
-  },
-  txMeta: {
-    flex: 1,
-  },
-  txTotal: {
-    fontSize: theme.typography.medium,
+    fontSize: 12,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
-  txDetails: {
+  soldTotalText: {
     fontSize: 11,
-    color: theme.colors.textSecondary,
-    marginTop: 2,
+    color: theme.colors.primary,
   },
-  cashierBadge: {
+  emptyCard: {
+    backgroundColor: theme.colors.surface,
+    padding: 20,
+    borderRadius: theme.borderRadius.md,
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+  },
+  saleHistoryCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    elevation: 1,
+  },
+  saleHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  saleHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
   },
-  cashierBadgeText: {
-    fontSize: 10,
-    color: theme.colors.primary,
-    fontWeight: '600',
-    marginLeft: 3,
+  txIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
-  txProfitBox: {
+  bgCash: {
+    backgroundColor: '#059669',
+  },
+  bgCredit: {
+    backgroundColor: '#d97706',
+  },
+  saleIdText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  saleDateTimeText: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+  },
+  saleHeaderRight: {
     alignItems: 'flex-end',
   },
-  txProfitText: {
-    fontSize: theme.typography.small,
+  saleTotalText: {
+    fontSize: 15,
     fontWeight: 'bold',
-    color: theme.colors.secondary,
+    color: theme.colors.primary,
   },
-  ticketActionPill: {
+  returnedTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.primaryLight,
-    paddingVertical: 2,
+    backgroundColor: '#fef3c7',
     paddingHorizontal: 6,
-    borderRadius: theme.borderRadius.sm,
-    marginTop: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 2,
   },
-  ticketActionPillText: {
+  returnedTagText: {
     fontSize: 10,
-    color: theme.colors.primary,
     fontWeight: 'bold',
+    color: '#b45309',
     marginLeft: 2,
   },
-  /* Receipt Modal */
+  saleItemsSummaryBox: {
+    marginVertical: 6,
+    backgroundColor: '#f8fafc',
+    padding: 6,
+    borderRadius: 6,
+  },
+  saleItemsSummaryText: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+  },
+  returnDatesContainer: {
+    backgroundColor: '#fffbeb',
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
+  },
+  returnDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 2,
+  },
+  returnDateText: {
+    fontSize: 11,
+    color: '#b45309',
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+  saleActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+  },
+  saleDetailBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: theme.colors.primaryLight,
+    marginRight: 6,
+  },
+  saleDetailBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: theme.colors.primary,
+    marginLeft: 4,
+  },
+  saleReturnBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#fef3c7',
+  },
+  saleReturnBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#b45309',
+    marginLeft: 4,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -980,64 +1189,172 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
   },
-  receiptContainer: {
+  modalContent: {
+    width: '100%',
+    maxWidth: 500,
     backgroundColor: '#ffffff',
     borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
-    width: '100%',
-    maxWidth: 440,
-    maxHeight: '92%',
-    elevation: 8,
+    maxHeight: '90%',
   },
-  receiptContent: {
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    paddingBottom: theme.spacing.sm,
+  },
+  modalTitle: {
+    fontSize: theme.typography.medium,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  returnInfoNotice: {
+    backgroundColor: '#fffbeb',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  returnNoticeTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#b45309',
+  },
+  returnNoticeSub: {
+    fontSize: 11,
+    color: '#92400e',
+    marginTop: 2,
+  },
+  returnItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  returnItemDesc: {
+    flex: 1,
+  },
+  returnItemName: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  returnItemPrice: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+  },
+  returnQtyBox: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  receiptStoreName: {
-    fontSize: theme.typography.header,
+  returnQtyLabel: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+    marginRight: 4,
+  },
+  returnQtyInput: {
+    width: 44,
+    height: 32,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 6,
+    textAlign: 'center',
+    fontSize: 13,
+    backgroundColor: '#ffffff',
+  },
+  inputLabel: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginBottom: 4,
+    marginTop: 8,
+    fontWeight: '600',
+  },
+  inputBox: {
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md,
+    height: 44,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    backgroundColor: '#ffffff',
+  },
+  confirmReturnBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#b45309',
+    paddingVertical: 12,
+    borderRadius: theme.borderRadius.full,
+    marginTop: 16,
+  },
+  confirmReturnBtnText: {
+    color: '#ffffff',
     fontWeight: 'bold',
-    color: '#000000',
+    fontSize: 13,
+    marginLeft: 6,
+  },
+  receiptContainer: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+    maxHeight: '90%',
+  },
+  receiptContent: {
+    paddingBottom: 20,
+  },
+  receiptStoreName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    color: theme.colors.text,
   },
   receiptSub: {
     fontSize: 12,
-    color: '#666666',
-    marginTop: 2,
     textAlign: 'center',
+    color: theme.colors.textSecondary,
+    marginTop: 2,
   },
   receiptDivider: {
-    color: '#999999',
-    letterSpacing: 2,
+    textAlign: 'center',
+    color: theme.colors.border,
     marginVertical: 4,
   },
   receiptDate: {
     fontSize: 11,
-    color: '#444444',
+    textAlign: 'center',
+    color: theme.colors.textMuted,
   },
   receiptCashierText: {
     fontSize: 11,
-    color: theme.colors.primary,
-    fontWeight: 'bold',
+    textAlign: 'center',
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   receiptItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 2,
+    paddingVertical: 4,
   },
   receiptItemName: {
     fontSize: 12,
-    color: '#222222',
+    color: theme.colors.text,
+    flex: 1,
   },
   receiptItemTotal: {
     fontSize: 12,
-    fontWeight: 'bold',
-    color: '#222222',
+    fontWeight: '600',
+    color: theme.colors.text,
   },
   receiptDiscountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 2,
+    paddingVertical: 2,
   },
   receiptDiscountLabel: {
     fontSize: 12,
@@ -1051,64 +1368,61 @@ const styles = StyleSheet.create({
   receiptTotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
-    marginVertical: 4,
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+    marginTop: 4,
   },
   receiptTotalLabel: {
     fontSize: 14,
     fontWeight: 'bold',
+    color: theme.colors.text,
   },
   receiptTotalVal: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
     color: theme.colors.primary,
   },
-  receiptMethod: {
+  receiptReturnsBox: {
+    backgroundColor: '#fffbeb',
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 8,
+  },
+  receiptReturnsTitle: {
     fontSize: 11,
-    color: '#666666',
-    alignSelf: 'flex-start',
-    marginTop: 4,
+    fontWeight: 'bold',
+    color: '#b45309',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  receiptReturnLine: {
+    fontSize: 10,
+    color: '#b45309',
   },
   receiptFooter: {
     fontSize: 11,
-    fontStyle: 'italic',
-    color: '#666666',
-    marginTop: 4,
     textAlign: 'center',
+    color: theme.colors.textSecondary,
+    marginVertical: 8,
   },
   shareSectionBox: {
-    width: '100%',
-    marginTop: 14,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-  },
-  shareSectionTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: theme.colors.textSecondary,
-    marginBottom: 8,
+    marginTop: 10,
   },
   shareInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-  shareInputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    backgroundColor: '#f8fafc',
-    paddingHorizontal: 4,
-  },
   shareInput: {
     flex: 1,
-    height: 36,
+    height: 38,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: 6,
+    paddingHorizontal: 8,
     fontSize: 12,
-    color: theme.colors.text,
+    marginRight: 6,
   },
   whatsAppShareBtn: {
     flexDirection: 'row',
@@ -1116,43 +1430,41 @@ const styles = StyleSheet.create({
     backgroundColor: '#25D366',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: theme.borderRadius.sm,
-    marginLeft: 6,
+    borderRadius: 6,
   },
   emailShareBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0284c7',
     paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: theme.borderRadius.sm,
-    marginLeft: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
   shareBtnText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
     marginLeft: 4,
   },
   receiptActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: theme.spacing.md,
-    gap: 6,
+    marginTop: 10,
   },
   receiptPrintBtn: {
-    flex: 1.2,
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.primary,
     paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
+    marginRight: 6,
   },
   receiptPrintBtnText: {
     color: '#ffffff',
-    fontWeight: 'bold',
     fontSize: 12,
+    fontWeight: 'bold',
     marginLeft: 4,
   },
   receiptCopyBtn: {
@@ -1164,25 +1476,25 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
-    backgroundColor: '#f8fafc',
+    marginRight: 6,
   },
   receiptCopyBtnText: {
     fontSize: 12,
-    fontWeight: 'bold',
+    fontWeight: '600',
     color: theme.colors.text,
     marginLeft: 4,
   },
   receiptCloseBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
+    backgroundColor: '#f1f5f9',
     borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   receiptCloseBtnText: {
-    color: theme.colors.text,
-    fontWeight: '600',
     fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.textSecondary,
   },
 });

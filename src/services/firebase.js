@@ -28,6 +28,27 @@ export const DEFAULT_FIREBASE_CONFIG = {
 };
 
 /**
+ * Helper to strip undefined values so Firestore setDoc / updateDoc never throws
+ */
+export function sanitizeDoc(data) {
+  if (!data || typeof data !== 'object') return data;
+  const clean = {};
+  Object.keys(data).forEach((key) => {
+    const val = data[key];
+    if (val !== undefined) {
+      if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+        clean[key] = sanitizeDoc(val);
+      } else if (Array.isArray(val)) {
+        clean[key] = val.map((item) => (typeof item === 'object' && item !== null ? sanitizeDoc(item) : item));
+      } else {
+        clean[key] = val;
+      }
+    }
+  });
+  return clean;
+}
+
+/**
  * Get stored Firebase configuration from AsyncStorage
  */
 export async function getStoredFirebaseConfig() {
@@ -85,440 +106,131 @@ export function isFirebaseReady() {
 }
 
 /* ==============================================================
- * REAL-TIME TWO-WAY LISTENERS (Cloud ➔ Local)
+ * GENERIC SAFE FIRESTORE HELPERS
  * ============================================================== */
 
-/**
- * Listen in real-time to changes in 'products' collection
- */
-export function subscribeToFirebaseProducts(onUpdate, onError) {
-  if (!dbInstance) return () => {};
-
+export async function saveItemToCollection(colName, item) {
+  if (!dbInstance || !item || !item.id) return;
   try {
-    const productsCollection = collection(dbInstance, 'products');
-    return onSnapshot(
-      productsCollection,
-      (snapshot) => {
-        const updated = [];
-        snapshot.forEach((docSnap) => {
-          updated.push({
-            ...docSnap.data(),
-            id: docSnap.id,
-          });
-        });
-        if (onUpdate) onUpdate(updated);
-      },
-      (error) => {
-        console.warn('Firestore products onSnapshot error:', error);
-        if (onError) onError(error);
-      }
-    );
-  } catch (err) {
-    console.warn('Error subscribing to products:', err);
-    return () => {};
-  }
-}
-
-/**
- * Listen in real-time to changes in 'customers' collection
- */
-export function subscribeToFirebaseCustomers(onUpdate, onError) {
-  if (!dbInstance) return () => {};
-
-  try {
-    const customersCollection = collection(dbInstance, 'customers');
-    return onSnapshot(
-      customersCollection,
-      (snapshot) => {
-        const updated = [];
-        snapshot.forEach((docSnap) => {
-          updated.push({
-            ...docSnap.data(),
-            id: docSnap.id,
-          });
-        });
-        if (onUpdate) onUpdate(updated);
-      },
-      (error) => {
-        console.warn('Firestore customers onSnapshot error:', error);
-        if (onError) onError(error);
-      }
-    );
-  } catch (err) {
-    console.warn('Error subscribing to customers:', err);
-    return () => {};
-  }
-}
-
-/**
- * Listen in real-time to changes in 'expenses' collection
- */
-export function subscribeToFirebaseExpenses(onUpdate, onError) {
-  if (!dbInstance) return () => {};
-
-  try {
-    const expensesCollection = collection(dbInstance, 'expenses');
-    return onSnapshot(
-      expensesCollection,
-      (snapshot) => {
-        const updated = [];
-        snapshot.forEach((docSnap) => {
-          updated.push({
-            ...docSnap.data(),
-            id: docSnap.id,
-          });
-        });
-        if (onUpdate) onUpdate(updated);
-      },
-      (error) => {
-        console.warn('Firestore expenses onSnapshot error:', error);
-        if (onError) onError(error);
-      }
-    );
-  } catch (err) {
-    console.warn('Error subscribing to expenses:', err);
-    return () => {};
-  }
-}
-
-/**
- * Listen in real-time to changes in 'sales' collection
- */
-export function subscribeToFirebaseSales(onUpdate, onError) {
-  if (!dbInstance) return () => {};
-
-  try {
-    const salesCollection = collection(dbInstance, 'sales');
-    return onSnapshot(
-      salesCollection,
-      (snapshot) => {
-        const updated = [];
-        snapshot.forEach((docSnap) => {
-          updated.push({
-            ...docSnap.data(),
-            id: docSnap.id,
-          });
-        });
-        // Sort by date desc
-        updated.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-        if (onUpdate) onUpdate(updated);
-      },
-      (error) => {
-        console.warn('Firestore sales onSnapshot error:', error);
-        if (onError) onError(error);
-      }
-    );
-  } catch (err) {
-    console.warn('Error subscribing to sales:', err);
-    return () => {};
-  }
-}
-
-/* ==============================================================
- * PRODUCT AUTO-PUSH OPERATIONS (Local ➔ Cloud)
- * ============================================================== */
-
-/**
- * Save or Update a single product in Firebase Firestore
- */
-export async function saveProductToFirebase(product) {
-  if (!dbInstance) return;
-  try {
-    const productRef = doc(dbInstance, 'products', product.id);
-    await setDoc(productRef, {
-      ...product,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
-    return { success: true };
-  } catch (err) {
-    console.warn(`Failed to save product ${product.id} to Firebase:`, err);
-    throw err;
-  }
-}
-
-/**
- * Delete a product from Firebase Firestore
- */
-export async function deleteProductFromFirebase(productId) {
-  if (!dbInstance) return;
-  try {
-    const productRef = doc(dbInstance, 'products', productId);
-    await deleteDoc(productRef);
-    return { success: true };
-  } catch (err) {
-    console.warn(`Failed to delete product ${productId} from Firebase:`, err);
-    throw err;
-  }
-}
-
-/**
- * Update stock quantity for a single product in Firebase Firestore
- */
-export async function updateProductStockInFirebase(productId, newStock) {
-  if (!dbInstance) return;
-  try {
-    const productRef = doc(dbInstance, 'products', productId);
-    await updateDoc(productRef, {
-      stock: newStock,
+    const docRef = doc(dbInstance, colName, String(item.id));
+    const cleaned = sanitizeDoc({
+      ...item,
       updatedAt: new Date().toISOString(),
     });
-  } catch (err) {
-    console.warn(`Failed to update stock for product ${productId} in Firebase:`, err);
-  }
-}
-
-/**
- * Bulk upload products to Firebase Firestore
- */
-export async function uploadAllProductsToFirebase(products) {
-  if (!dbInstance) {
-    throw new Error('Firebase Firestore non configuré.');
-  }
-
-  const productsCollection = collection(dbInstance, 'products');
-  const results = [];
-
-  for (const product of products) {
-    const productRef = doc(productsCollection, product.id);
-    await setDoc(productRef, {
-      ...product,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
-    results.push(product.id);
-  }
-
-  return { success: true, count: results.length };
-}
-
-/**
- * Fetch all products once from Firebase Firestore
- */
-export async function fetchProductsFromFirebase() {
-  if (!dbInstance) {
-    throw new Error('Firebase Firestore non configuré.');
-  }
-
-  const productsCollection = collection(dbInstance, 'products');
-  const snapshot = await getDocs(productsCollection);
-  const cloudProducts = [];
-
-  snapshot.forEach((docSnapshot) => {
-    cloudProducts.push({
-      ...docSnapshot.data(),
-      id: docSnapshot.id,
-    });
-  });
-
-  return cloudProducts;
-}
-
-/* ==============================================================
- * SALES, CUSTOMERS & EXPENSES AUTO-PUSH
- * ============================================================== */
-
-/**
- * Record a completed sale in Firebase Firestore 'sales' collection
- */
-export async function saveSaleToFirebase(sale) {
-  if (!dbInstance) return;
-  try {
-    const saleRef = doc(dbInstance, 'sales', sale.id);
-    await setDoc(saleRef, {
-      ...sale,
-      createdAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.warn(`Failed to save sale ${sale.id} to Firebase:`, err);
-  }
-}
-
-/**
- * Save or update customer in Firebase Firestore 'customers' collection
- */
-export async function saveCustomerToFirebase(customer) {
-  if (!dbInstance) return;
-  try {
-    const custRef = doc(dbInstance, 'customers', customer.id);
-    await setDoc(custRef, {
-      ...customer,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
-  } catch (err) {
-    console.warn(`Failed to save customer ${customer.id} to Firebase:`, err);
-  }
-}
-
-/**
- * Save an expense record in Firebase Firestore 'expenses' collection
- */
-export async function saveExpenseToFirebase(expense) {
-  if (!dbInstance) return;
-  try {
-    const expRef = doc(dbInstance, 'expenses', expense.id);
-    await setDoc(expRef, {
-      ...expense,
-      createdAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.warn(`Failed to save expense ${expense.id} in Firebase:`, err);
-  }
-}
-
-/**
- * Delete an expense record from Firebase Firestore
- */
-export async function deleteExpenseFromFirebase(expenseId) {
-  if (!dbInstance) return;
-  try {
-    const expRef = doc(dbInstance, 'expenses', expenseId);
-    await deleteDoc(expRef);
+    await setDoc(docRef, cleaned, { merge: true });
     return { success: true };
   } catch (err) {
-    console.warn(`Failed to delete expense ${expenseId} from Firebase:`, err);
-    throw err;
+    console.warn(`Firestore save to ${colName} error:`, err);
   }
 }
 
-/**
- * Delete a customer record from Firebase Firestore
- */
-export async function deleteCustomerFromFirebase(customerId) {
-  if (!dbInstance) return;
+export async function deleteItemFromCollection(colName, itemId) {
+  if (!dbInstance || !itemId) return;
   try {
-    const custRef = doc(dbInstance, 'customers', customerId);
-    await deleteDoc(custRef);
+    const docRef = doc(dbInstance, colName, String(itemId));
+    await deleteDoc(docRef);
     return { success: true };
   } catch (err) {
-    console.warn(`Failed to delete customer ${customerId} from Firebase:`, err);
-    throw err;
+    console.warn(`Firestore delete from ${colName} error:`, err);
   }
 }
 
-/**
- * Fetch all sales once from Firebase Firestore
- */
-export async function fetchSalesFromFirebase() {
+export async function fetchCollectionItems(colName) {
   if (!dbInstance) return [];
   try {
-    const salesCollection = collection(dbInstance, 'sales');
-    const snapshot = await getDocs(salesCollection);
-    const cloudSales = [];
-    snapshot.forEach((docSnapshot) => {
-      cloudSales.push({
-        ...docSnapshot.data(),
-        id: docSnapshot.id,
-      });
-    });
-    cloudSales.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-    return cloudSales;
-  } catch (err) {
-    console.warn('Failed to fetch sales from Firebase:', err);
-    return [];
-  }
-}
-
-/**
- * Fetch all customers once from Firebase Firestore
- */
-export async function fetchCustomersFromFirebase() {
-  if (!dbInstance) return [];
-  try {
-    const custCollection = collection(dbInstance, 'customers');
-    const snapshot = await getDocs(custCollection);
-    const cloudCustomers = [];
-    snapshot.forEach((docSnapshot) => {
-      cloudCustomers.push({
-        ...docSnapshot.data(),
-        id: docSnapshot.id,
-      });
-    });
-    return cloudCustomers;
-  } catch (err) {
-    console.warn('Failed to fetch customers from Firebase:', err);
-    return [];
-  }
-}
-
-/**
- * Fetch all expenses once from Firebase Firestore
- */
-export async function fetchExpensesFromFirebase() {
-  if (!dbInstance) return [];
-  try {
-    const expCollection = collection(dbInstance, 'expenses');
-    const snapshot = await getDocs(expCollection);
-    const cloudExpenses = [];
-    snapshot.forEach((docSnapshot) => {
-      cloudExpenses.push({
-        ...docSnapshot.data(),
-        id: docSnapshot.id,
-      });
-    });
-    cloudExpenses.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-    return cloudExpenses;
-  } catch (err) {
-    console.warn('Failed to fetch expenses from Firebase:', err);
-    return [];
-  }
-}
-
-/**
- * Clear an entire collection in Firebase Firestore (e.g., reset or clear all expenses)
- */
-export async function clearFirebaseCollection(collectionName) {
-  if (!dbInstance) return;
-  try {
-    const colRef = collection(dbInstance, collectionName);
+    const colRef = collection(dbInstance, colName);
     const snapshot = await getDocs(colRef);
-    const promises = [];
+    const items = [];
     snapshot.forEach((docSnap) => {
-      promises.push(deleteDoc(doc(dbInstance, collectionName, docSnap.id)));
+      items.push({
+        ...docSnap.data(),
+        id: docSnap.id,
+      });
     });
-    await Promise.all(promises);
-    return { success: true, count: promises.length };
+    return items;
   } catch (err) {
-    console.warn(`Failed to clear collection ${collectionName} in Firebase:`, err);
-    throw err;
+    console.warn(`Firestore fetch ${colName} error:`, err);
+    return [];
   }
 }
 
-/**
- * Save store info to Firebase Firestore 'settings' collection
- */
-export async function saveStoreInfoToFirebase(info) {
-  if (!dbInstance) return;
+export function subscribeToCollection(colName, onUpdate, onError) {
+  if (!dbInstance) return () => {};
   try {
-    const infoRef = doc(dbInstance, 'settings', 'store_info');
-    await setDoc(infoRef, {
-      ...info,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
-    return { success: true };
+    const colRef = collection(dbInstance, colName);
+    return onSnapshot(
+      colRef,
+      (snapshot) => {
+        const items = [];
+        snapshot.forEach((docSnap) => {
+          items.push({
+            ...docSnap.data(),
+            id: docSnap.id,
+          });
+        });
+        if (onUpdate) onUpdate(items);
+      },
+      (err) => {
+        console.warn(`Firestore onSnapshot ${colName} error:`, err);
+        if (onError) onError(err);
+      }
+    );
   } catch (err) {
-    console.warn('Failed to save store info to Firebase:', err);
+    console.warn(`Subscribe error ${colName}:`, err);
+    return () => {};
   }
 }
 
-/**
- * Fetch store info from Firebase Firestore
- */
-export async function fetchStoreInfoFromFirebase() {
-  if (!dbInstance) return null;
-  try {
-    const infoRef = doc(dbInstance, 'settings', 'store_info');
-    const snap = await getDoc(infoRef);
-    if (snap.exists()) {
-      return snap.data();
-    }
-  } catch (err) {
-    console.warn('Failed to fetch store info from Firebase:', err);
-  }
-  return null;
+/* ==============================================================
+ * REAL-TIME LISTENERS
+ * ============================================================== */
+
+export function subscribeToFirebaseProducts(onUpdate, onError) {
+  return subscribeToCollection('products', onUpdate, onError);
 }
 
-/**
- * Listen in real-time to store info in 'settings/store_info'
- */
+export function subscribeToFirebaseCategories(onUpdate, onError) {
+  return subscribeToCollection('categories', onUpdate, onError);
+}
+
+export function subscribeToFirebaseCustomers(onUpdate, onError) {
+  return subscribeToCollection('customers', onUpdate, onError);
+}
+
+export function subscribeToFirebaseExpenses(onUpdate, onError) {
+  return subscribeToCollection('expenses', onUpdate, onError);
+}
+
+export function subscribeToFirebaseSales(onUpdate, onError) {
+  return subscribeToCollection('sales', (items) => {
+    // Sort by date desc
+    items.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+    if (onUpdate) onUpdate(items);
+  }, onError);
+}
+
+export function subscribeToFirebaseTransactions(onUpdate, onError) {
+  return subscribeToCollection('transactions', (items) => {
+    items.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    if (onUpdate) onUpdate(items);
+  }, onError);
+}
+
+export function subscribeToFirebaseServices(onUpdate, onError) {
+  return subscribeToCollection('services', onUpdate, onError);
+}
+
+export function subscribeToFirebaseRepairs(onUpdate, onError) {
+  return subscribeToCollection('repairs', (items) => {
+    items.sort((a, b) => new Date(b.createdAt || b.dateReceived || 0) - new Date(a.createdAt || a.dateReceived || 0));
+    if (onUpdate) onUpdate(items);
+  }, onError);
+}
+
+export function subscribeToFirebaseUsers(onUpdate) {
+  return subscribeToCollection('users', onUpdate);
+}
+
 export function subscribeToFirebaseStoreInfo(onUpdate) {
   if (!dbInstance) return () => {};
   try {
@@ -534,80 +246,192 @@ export function subscribeToFirebaseStoreInfo(onUpdate) {
   }
 }
 
-/**
- * Save or update a user in Firebase Firestore 'users' collection
- */
-export async function saveUserToFirebase(user) {
+/* ==============================================================
+ * SPECIFIC CRUD CALLS
+ * ============================================================== */
+
+// Products
+export async function saveProductToFirebase(product) {
+  return saveItemToCollection('products', product);
+}
+
+export async function deleteProductFromFirebase(productId) {
+  return deleteItemFromCollection('products', productId);
+}
+
+export async function updateProductStockInFirebase(productId, newStock) {
   if (!dbInstance) return;
   try {
-    const userRef = doc(dbInstance, 'users', user.id);
-    await setDoc(userRef, {
-      ...user,
+    const productRef = doc(dbInstance, 'products', String(productId));
+    await updateDoc(productRef, {
+      stock: newStock,
       updatedAt: new Date().toISOString(),
-    }, { merge: true });
-    return { success: true };
+    });
   } catch (err) {
-    console.warn(`Failed to save user ${user.id} to Firebase:`, err);
-    throw err;
+    console.warn(`Failed to update stock for product ${productId} in Firebase:`, err);
   }
 }
 
-/**
- * Delete a user from Firebase Firestore
- */
+export async function uploadAllProductsToFirebase(products) {
+  if (!dbInstance) throw new Error('Firebase Firestore non initialisé.');
+  let count = 0;
+  for (const p of products) {
+    await saveItemToCollection('products', p);
+    count++;
+  }
+  return { success: true, count };
+}
+
+export async function fetchProductsFromFirebase() {
+  return fetchCollectionItems('products');
+}
+
+// Categories
+export async function saveCategoryToFirebase(category) {
+  return saveItemToCollection('categories', category);
+}
+
+export async function deleteCategoryFromFirebase(categoryId) {
+  return deleteItemFromCollection('categories', categoryId);
+}
+
+export async function fetchCategoriesFromFirebase() {
+  return fetchCollectionItems('categories');
+}
+
+// Customers
+export async function saveCustomerToFirebase(customer) {
+  return saveItemToCollection('customers', customer);
+}
+
+export async function deleteCustomerFromFirebase(customerId) {
+  return deleteItemFromCollection('customers', customerId);
+}
+
+export async function fetchCustomersFromFirebase() {
+  return fetchCollectionItems('customers');
+}
+
+// Sales & Returns
+export async function saveSaleToFirebase(sale) {
+  return saveItemToCollection('sales', sale);
+}
+
+export async function fetchSalesFromFirebase() {
+  const sales = await fetchCollectionItems('sales');
+  sales.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+  return sales;
+}
+
+// Transactions (Ledger entry for each sale, return, payment, expense)
+export async function saveTransactionToFirebase(tx) {
+  return saveItemToCollection('transactions', tx);
+}
+
+export async function fetchTransactionsFromFirebase() {
+  const list = await fetchCollectionItems('transactions');
+  list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  return list;
+}
+
+// Services
+export async function saveServiceToFirebase(service) {
+  return saveItemToCollection('services', service);
+}
+
+export async function deleteServiceFromFirebase(serviceId) {
+  return deleteItemFromCollection('services', serviceId);
+}
+
+export async function fetchServicesFromFirebase() {
+  return fetchCollectionItems('services');
+}
+
+// Repairs
+export async function saveRepairToFirebase(repair) {
+  return saveItemToCollection('repairs', repair);
+}
+
+export async function deleteRepairFromFirebase(repairId) {
+  return deleteItemFromCollection('repairs', repairId);
+}
+
+export async function fetchRepairsFromFirebase() {
+  const repairs = await fetchCollectionItems('repairs');
+  repairs.sort((a, b) => new Date(b.createdAt || b.dateReceived || 0) - new Date(a.createdAt || a.dateReceived || 0));
+  return repairs;
+}
+
+// Expenses
+export async function saveExpenseToFirebase(expense) {
+  return saveItemToCollection('expenses', expense);
+}
+
+export async function deleteExpenseFromFirebase(expenseId) {
+  return deleteItemFromCollection('expenses', expenseId);
+}
+
+export async function fetchExpensesFromFirebase() {
+  const expenses = await fetchCollectionItems('expenses');
+  expenses.sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+  return expenses;
+}
+
+// Users (Dedicated Table)
+export async function saveUserToFirebase(user) {
+  return saveItemToCollection('users', user);
+}
+
 export async function deleteUserFromFirebase(userId) {
+  return deleteItemFromCollection('users', userId);
+}
+
+export async function fetchUsersFromFirebase() {
+  return fetchCollectionItems('users');
+}
+
+// Store Info
+export async function saveStoreInfoToFirebase(info) {
   if (!dbInstance) return;
   try {
-    const userRef = doc(dbInstance, 'users', userId);
-    await deleteDoc(userRef);
+    const infoRef = doc(dbInstance, 'settings', 'store_info');
+    await setDoc(infoRef, sanitizeDoc({
+      ...info,
+      updatedAt: new Date().toISOString(),
+    }), { merge: true });
     return { success: true };
   } catch (err) {
-    console.warn(`Failed to delete user ${userId} from Firebase:`, err);
-    throw err;
+    console.warn('Failed to save store info to Firebase:', err);
   }
 }
 
-/**
- * Fetch all users from Firebase Firestore
- */
-export async function fetchUsersFromFirebase() {
-  if (!dbInstance) return [];
+export async function fetchStoreInfoFromFirebase() {
+  if (!dbInstance) return null;
   try {
-    const usersCol = collection(dbInstance, 'users');
-    const snapshot = await getDocs(usersCol);
-    const users = [];
-    snapshot.forEach((snap) => {
-      users.push({
-        ...snap.data(),
-        id: snap.id,
-      });
-    });
-    return users;
+    const infoRef = doc(dbInstance, 'settings', 'store_info');
+    const snap = await getDoc(infoRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
   } catch (err) {
-    console.warn('Failed to fetch users from Firebase:', err);
-    return [];
+    console.warn('Failed to fetch store info from Firebase:', err);
   }
+  return null;
 }
 
-/**
- * Listen in real-time to users collection
- */
-export function subscribeToFirebaseUsers(onUpdate) {
-  if (!dbInstance) return () => {};
+// Clear Collection
+export async function clearFirebaseCollection(collectionName) {
+  if (!dbInstance) return;
   try {
-    const usersCol = collection(dbInstance, 'users');
-    return onSnapshot(usersCol, (snapshot) => {
-      const users = [];
-      snapshot.forEach((snap) => {
-        users.push({
-          ...snap.data(),
-          id: snap.id,
-        });
-      });
-      if (onUpdate) onUpdate(users);
+    const colRef = collection(dbInstance, collectionName);
+    const snapshot = await getDocs(colRef);
+    const promises = [];
+    snapshot.forEach((docSnap) => {
+      promises.push(deleteDoc(doc(dbInstance, collectionName, docSnap.id)));
     });
+    await Promise.all(promises);
+    return { success: true, count: promises.length };
   } catch (err) {
-    console.warn('Error subscribing to users:', err);
-    return () => {};
+    console.warn(`Failed to clear collection ${collectionName} in Firebase:`, err);
   }
 }

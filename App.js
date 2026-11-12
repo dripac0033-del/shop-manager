@@ -15,6 +15,7 @@ import DashboardScreen from './src/screens/DashboardScreen';
 import POSScreen from './src/screens/POSScreen';
 import ProductsScreen from './src/screens/ProductsScreen';
 import CustomersScreen from './src/screens/CustomersScreen';
+import ServicesRepairsScreen from './src/screens/ServicesRepairsScreen';
 import ExpensesScreen from './src/screens/ExpensesScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -27,6 +28,7 @@ function MainTabs() {
     t,
     products = [],
     customers = [],
+    repairs = [],
     openStockModal,
     currentUser,
     logout,
@@ -38,6 +40,7 @@ function MainTabs() {
     (p) => Number(p.stock || 0) <= Number(p.minStock || 5)
   ).length;
   const customersWithDebtCount = (customers || []).filter((c) => (c.debt || 0) > 0).length;
+  const pendingRepairsCount = (repairs || []).filter((r) => r.status !== 'delivered' && r.status !== 'cancelled').length;
 
   const handleLogout = () => {
     const confirmMsg = isRTL ? 'هل تريد تسجيل الخروج؟' : 'Voulez-vous vous déconnecter ?';
@@ -65,7 +68,7 @@ function MainTabs() {
         headerTintColor: '#ffffff',
         headerTitleStyle: {
           fontWeight: 'bold',
-          fontSize: 18,
+          fontSize: 17,
         },
         headerRight: () => (
           <View style={styles.headerRightContainer}>
@@ -73,13 +76,13 @@ function MainTabs() {
             {currentUser && (
               <View style={styles.userBadge}>
                 <Ionicons name="person-circle" size={16} color="#ffffff" />
-                <Text style={styles.userBadgeText}>{currentUser.username}</Text>
+                <Text style={styles.userBadgeText}>@{currentUser.username}</Text>
               </View>
             )}
 
             {/* Low stock notification bell */}
             <TouchableOpacity style={styles.headerIconBtn} onPress={openStockModal}>
-              <Ionicons name="notifications" size={20} color="#ffffff" />
+              <Ionicons name="notifications" size={19} color="#ffffff" />
               {lowStockCount > 0 && (
                 <View style={styles.headerBellBadge}>
                   <Text style={styles.headerBellBadgeText}>{lowStockCount}</Text>
@@ -89,7 +92,7 @@ function MainTabs() {
 
             {/* Logout button */}
             <TouchableOpacity style={styles.headerIconBtn} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={20} color="#ffffff" />
+              <Ionicons name="log-out-outline" size={19} color="#ffffff" />
             </TouchableOpacity>
           </View>
         ),
@@ -97,14 +100,14 @@ function MainTabs() {
         tabBarInactiveTintColor: theme.colors.textMuted,
         tabBarStyle: {
           height: Platform.OS === 'ios' ? 88 : 64,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+          paddingBottom: Platform.OS === 'ios' ? 26 : 8,
           paddingTop: 8,
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
           borderTopColor: theme.colors.border,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '600',
         },
       }}
@@ -113,9 +116,7 @@ function MainTabs() {
         name="Dashboard"
         component={DashboardScreen}
         listeners={{
-          tabPress: () => {
-            refreshAllFromFirebase();
-          },
+          tabPress: () => refreshAllFromFirebase(),
         }}
         options={{
           title: t('dashboard'),
@@ -129,9 +130,7 @@ function MainTabs() {
         name="POS"
         component={POSScreen}
         listeners={{
-          tabPress: () => {
-            refreshAllFromFirebase();
-          },
+          tabPress: () => refreshAllFromFirebase(),
         }}
         options={{
           title: t('pos'),
@@ -145,9 +144,7 @@ function MainTabs() {
         name="Products"
         component={ProductsScreen}
         listeners={{
-          tabPress: () => {
-            refreshAllFromFirebase();
-          },
+          tabPress: () => refreshAllFromFirebase(),
         }}
         options={{
           title: t('products'),
@@ -163,9 +160,7 @@ function MainTabs() {
         name="Customers"
         component={CustomersScreen}
         listeners={{
-          tabPress: () => {
-            refreshAllFromFirebase();
-          },
+          tabPress: () => refreshAllFromFirebase(),
         }}
         options={{
           title: t('customers'),
@@ -178,12 +173,26 @@ function MainTabs() {
       />
 
       <Tab.Screen
+        name="ServicesRepairs"
+        component={ServicesRepairsScreen}
+        listeners={{
+          tabPress: () => refreshAllFromFirebase(),
+        }}
+        options={{
+          title: t('servicesRepairs'),
+          tabBarBadge: pendingRepairsCount > 0 ? pendingRepairsCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#8b5cf6' },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="construct-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tab.Screen
         name="Reports"
         component={ReportsScreen}
         listeners={{
-          tabPress: () => {
-            refreshAllFromFirebase();
-          },
+          tabPress: () => refreshAllFromFirebase(),
         }}
         options={{
           title: t('reports'),
@@ -216,6 +225,11 @@ function NavigationRoot() {
           name="MainTabs"
           component={MainTabs}
           options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="ServicesRepairs"
+          component={ServicesRepairsScreen}
+          options={{ title: t('servicesRepairs') }}
         />
         <Stack.Screen
           name="Expenses"
@@ -273,7 +287,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: theme.borderRadius.full,
-    marginRight: 8,
+    marginRight: 6,
   },
   userBadgeText: {
     color: '#ffffff',

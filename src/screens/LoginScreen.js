@@ -15,7 +15,7 @@ import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
-  const { login, isRTL, language, setLanguage, storeInfo } = useApp();
+  const { login, isRTL, language, setLanguage, storeInfo, sessionExpiredNotice, setSessionExpiredNotice } = useApp();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -25,6 +25,8 @@ export default function LoginScreen() {
 
   const handleLogin = async () => {
     setErrorMessage('');
+    if (setSessionExpiredNotice) setSessionExpiredNotice(false);
+
     if (!username.trim() || !password.trim()) {
       setErrorMessage(
         isRTL
@@ -87,9 +89,21 @@ export default function LoginScreen() {
             </View>
             <Text style={styles.appTitle}>{storeInfo.name || 'Store Soft'}</Text>
             <Text style={styles.appSubtitle}>
-              {isRTL ? 'نظام إدارة المبيعات والمخزون' : 'Gestion de Caisse & Stock'}
+              {isRTL ? 'نظام إدارة المبيعات والمخزون الاحترافي' : 'Système de Caisse, Stock & Services'}
             </Text>
           </View>
+
+          {/* Session Expired Banner */}
+          {sessionExpiredNotice && (
+            <View style={styles.sessionExpiredBox}>
+              <Ionicons name="time-outline" size={20} color="#b45309" />
+              <Text style={styles.sessionExpiredText}>
+                {isRTL
+                  ? 'انتهت صلاحية الجلسة لعدم النشاط. يرجى إعادة تسجيل الدخول.'
+                  : 'Session expirée après inactivité. Veuillez vous reconnecter.'}
+              </Text>
+            </View>
+          )}
 
           {/* Error Message */}
           {errorMessage ? (
@@ -99,9 +113,9 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          {/* Username Input */}
+          {/* Username Input - Clean without hint */}
           <Text style={[styles.label, isRTL && styles.textRight]}>
-            {isRTL ? 'اسم المستخدم' : 'Nom d\'utilisateur'}
+            {isRTL ? 'اسم المستخدم' : "Nom d'utilisateur"}
           </Text>
           <View style={[styles.inputContainer, isRTL && styles.rowReverse]}>
             <Ionicons name="person-outline" size={20} color={theme.colors.textSecondary} />
@@ -112,13 +126,13 @@ export default function LoginScreen() {
                 setUsername(val);
                 setErrorMessage('');
               }}
-              placeholder="Ex: hadjali49"
+              placeholder=""
               autoCapitalize="none"
               autoCorrect={false}
             />
           </View>
 
-          {/* Password Input */}
+          {/* Password Input - Clean without hint */}
           <Text style={[styles.label, isRTL && styles.textRight]}>
             {isRTL ? 'كلمة المرور' : 'Mot de passe'}
           </Text>
@@ -131,7 +145,7 @@ export default function LoginScreen() {
                 setPassword(val);
                 setErrorMessage('');
               }}
-              placeholder="••••••••"
+              placeholder=""
               secureTextEntry={!showPassword}
               autoCapitalize="none"
               onSubmitEditing={handleLogin}
@@ -168,11 +182,11 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Security footnote */}
+          {/* Cloud Security Indicator */}
           <View style={styles.footerInfo}>
-            <Ionicons name="cloud-done-outline" size={14} color={theme.colors.textMuted} />
+            <Ionicons name="shield-checkmark-outline" size={15} color={theme.colors.primary} />
             <Text style={styles.footerText}>
-              {isRTL ? 'بيانات مؤمنة ومتزامنة مع فايربيس' : 'Base de données synchronisée sur Firebase'}
+              {isRTL ? 'قاعدة بيانات آمنة ومزامنة مع فايربيس' : 'Base de données sécurisée & synchronisée sur Firebase'}
             </Text>
           </View>
         </View>
@@ -184,7 +198,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#0f172a',
   },
   scrollContent: {
     flexGrow: 1,
@@ -200,16 +214,16 @@ const styles = StyleSheet.create({
   },
   langBar: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   langBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
     borderRadius: theme.borderRadius.full,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     marginHorizontal: 4,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   langBtnActive: {
     backgroundColor: theme.colors.primary,
@@ -217,7 +231,7 @@ const styles = StyleSheet.create({
   },
   langText: {
     fontSize: 12,
-    color: theme.colors.textSecondary,
+    color: '#94a3b8',
     fontWeight: '600',
   },
   langTextActive: {
@@ -227,30 +241,30 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: '#ffffff',
-    borderRadius: theme.borderRadius.lg,
-    padding: 28,
+    borderRadius: theme.borderRadius.xl,
+    padding: 30,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 15,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   logoWrapper: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
-    elevation: 3,
+    marginBottom: 14,
+    elevation: 4,
   },
   appTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
@@ -258,26 +272,30 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.textSecondary,
     marginTop: 4,
+    textAlign: 'center',
   },
-  credentialBanner: {
+  sessionExpiredBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.primaryLight,
-    padding: 10,
+    backgroundColor: '#fef3c7',
+    padding: 12,
     borderRadius: theme.borderRadius.md,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#fcd34d',
   },
-  credentialText: {
+  sessionExpiredText: {
     fontSize: 12,
-    color: theme.colors.primary,
+    color: '#b45309',
     marginLeft: 8,
+    flex: 1,
     fontWeight: '600',
   },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.dangerLight,
-    padding: 10,
+    padding: 12,
     borderRadius: theme.borderRadius.md,
     marginBottom: 16,
   },
@@ -286,29 +304,30 @@ const styles = StyleSheet.create({
     color: theme.colors.danger,
     marginLeft: 8,
     flex: 1,
+    fontWeight: '600',
   },
   label: {
     fontSize: 13,
     fontWeight: '600',
     color: theme.colors.text,
     marginBottom: 6,
-    marginTop: 10,
+    marginTop: 12,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
     paddingHorizontal: 12,
     backgroundColor: '#f8fafc',
-    height: 46,
+    height: 48,
   },
   input: {
     flex: 1,
-    height: 46,
+    height: 48,
     marginLeft: 10,
-    fontSize: 14,
+    fontSize: 15,
     color: theme.colors.text,
   },
   eyeBtn: {
@@ -320,8 +339,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 24,
-    elevation: 2,
+    marginTop: 26,
+    elevation: 3,
   },
   loginBtnDisabled: {
     opacity: 0.7,
@@ -339,11 +358,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 22,
   },
   footerText: {
     fontSize: 11,
-    color: theme.colors.textMuted,
+    color: theme.colors.textSecondary,
     marginLeft: 6,
+    fontWeight: '500',
   },
 });

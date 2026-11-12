@@ -34,6 +34,7 @@ export default function CustomersScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDebtOnly, setFilterDebtOnly] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   // Modals
   const [addModalVisible, setAddModalVisible] = useState(false);
@@ -64,6 +65,11 @@ export default function CustomersScreen() {
   const validCustomers = Array.isArray(customers) ? customers : [];
   const totalDebt = validCustomers.reduce((sum, c) => sum + (c.debt || 0), 0);
 
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
+
   const filteredCustomers = validCustomers.filter((c) => {
     if (!c) return false;
     const nameMatch = (c.name || '').toLowerCase().includes(searchQuery.toLowerCase());
@@ -73,25 +79,30 @@ export default function CustomersScreen() {
     return matchesSearch && matchesDebt;
   });
 
+  // Direct Validation & Instant Window Closure
   const handleAddCustomer = async () => {
     if (!name.trim()) {
       Alert.alert(t('customerName'), isRTL ? 'يرجى إدخال اسم الزبون!' : 'Veuillez saisir le nom du client !');
       return;
     }
 
-    try {
-      await addCustomer({
-        name: name.trim(),
-        phone: phone.trim(),
-        address: address.trim(),
-        debt: Number(initialDebt || 0),
-      });
+    const payload = {
+      name: name.trim(),
+      phone: phone.trim(),
+      address: address.trim(),
+      debt: Number(initialDebt || 0),
+    };
 
-      setName('');
-      setPhone('');
-      setAddress('');
-      setInitialDebt('');
-      setAddModalVisible(false);
+    // CLOSE MODAL DIRECTLY
+    setAddModalVisible(false);
+    setName('');
+    setPhone('');
+    setAddress('');
+    setInitialDebt('');
+
+    try {
+      await addCustomer(payload);
+      showToast(isRTL ? '✅ تم إضافة الزبون بنجاح' : '✅ Client enregistré avec succès');
     } catch (err) {
       console.warn('Error adding customer:', err);
     }
@@ -106,6 +117,7 @@ export default function CustomersScreen() {
     setEditModalVisible(true);
   };
 
+  // Direct Validation & Instant Window Closure
   const handleSaveEdit = async () => {
     if (!selectedCustomer) return;
     if (!editName.trim()) {
@@ -113,15 +125,21 @@ export default function CustomersScreen() {
       return;
     }
 
+    const targetId = selectedCustomer.id;
+    const payload = {
+      name: editName.trim(),
+      phone: editPhone.trim(),
+      address: editAddress.trim(),
+      debt: Number(editDebt || 0),
+    };
+
+    // CLOSE MODAL DIRECTLY
+    setEditModalVisible(false);
+    setSelectedCustomer(null);
+
     try {
-      await updateCustomer(selectedCustomer.id, {
-        name: editName.trim(),
-        phone: editPhone.trim(),
-        address: editAddress.trim(),
-        debt: Number(editDebt || 0),
-      });
-      setEditModalVisible(false);
-      setSelectedCustomer(null);
+      await updateCustomer(targetId, payload);
+      showToast(isRTL ? '✅ تم تحديث بيانات الزبون' : '✅ Client mis à jour');
     } catch (err) {
       console.warn('Error updating customer:', err);
     }
@@ -129,13 +147,14 @@ export default function CustomersScreen() {
 
   const handleDelete = (customer) => {
     const confirmMsg = isRTL
-      ? `هل أنت متأكد من حذف الزبون "${customer.name}"؟ سيتم حذفه من قاعدة البيانات أيضاً.`
-      : `Voulez-vous vraiment supprimer le client "${customer.name}" ? Il sera également supprimé de Firebase.`;
+      ? `هل أنت متأكد من حذف الزبون "${customer.name}"؟`
+      : `Voulez-vous vraiment supprimer le client "${customer.name}" ?`;
 
     if (Platform.OS === 'web') {
       const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmMsg) : true;
       if (confirmed) {
         deleteCustomer(customer.id);
+        showToast(isRTL ? 'تم حذف الزبون' : 'Client supprimé');
       }
       return;
     }
@@ -148,7 +167,10 @@ export default function CustomersScreen() {
         {
           text: isRTL ? 'حذف' : 'Supprimer',
           style: 'destructive',
-          onPress: () => deleteCustomer(customer.id),
+          onPress: () => {
+            deleteCustomer(customer.id);
+            showToast(isRTL ? 'تم حذف الزبون' : 'Client supprimé');
+          },
         },
       ]
     );
@@ -161,6 +183,7 @@ export default function CustomersScreen() {
     setPaymentModalVisible(true);
   };
 
+  // Direct Validation & Close for Payment
   const handleConfirmPayment = async () => {
     const amount = Number(payAmount);
     if (!amount || amount <= 0) {
@@ -168,24 +191,21 @@ export default function CustomersScreen() {
       return;
     }
 
-    try {
-      await recordCustomerPayment(selectedCustomer.id, amount, payNote);
-      setPaymentModalVisible(false);
-      const msg = isRTL
-        ? `تم تسجيل تسديد مبلغ ${formatMoney(amount)} بنجاح!`
-        : `Paiement de ${formatMoney(amount)} enregistré avec succès !`;
+    const custId = selectedCustomer.id;
+    const note = payNote;
 
-      if (Platform.OS === 'web') {
-        window.alert(msg);
-      } else {
-        Alert.alert(t('saleCompleted'), msg);
-      }
+    // CLOSE MODAL DIRECTLY
+    setPaymentModalVisible(false);
+    setSelectedCustomer(null);
+
+    try {
+      await recordCustomerPayment(custId, amount, note);
+      showToast(isRTL ? `✅ تم تسديد ${formatMoney(amount)} بنجاح` : `✅ Versement de ${formatMoney(amount)} encaissé`);
     } catch (err) {
       console.warn('Error recording payment:', err);
     }
   };
 
-  // Open Debt Share Modal
   const handleOpenShare = (customer) => {
     setShareDebtCustomer(customer);
     setShareEmailInput('');
@@ -242,7 +262,6 @@ export default function CustomersScreen() {
     }
   };
 
-  // Export Customers to CSV
   const handleExportCustomersCSV = () => {
     if (!validCustomers.length) {
       Alert.alert('CSV', isRTL ? 'لا توجد بيانات زبائن لتصديرها!' : 'Aucun client à exporter !');
@@ -275,31 +294,12 @@ export default function CustomersScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Live Two-Way Sync Bar */}
-      <View style={[styles.syncStatusBanner, isRTL && styles.rowReverse]}>
-        <View style={[styles.syncStatusLeft, isRTL && styles.rowReverse]}>
-          <View
-            style={[
-              styles.syncDot,
-              syncStatus === 'sending' || syncStatus === 'receiving'
-                ? styles.syncDotBlue
-                : firebaseConnected
-                ? styles.syncDotGreen
-                : styles.syncDotGray,
-            ]}
-          />
-          <Text style={styles.syncStatusText}>
-            {syncStatus === 'sending'
-              ? (isRTL ? 'جارٍ حفظ بيانات الزبائن في فايربيس...' : 'Synchronisation Firebase en cours...')
-              : syncStatus === 'receiving'
-              ? (isRTL ? 'تحديث فوري لبيانات الزبائن...' : 'Réception en direct de Firebase...')
-              : firebaseConnected
-              ? (isRTL ? 'الزبائن والديون متزامنة مباشرة مع فايربيس' : 'Clients & Crédits synchronisés avec Firebase')
-              : (isRTL ? 'الوضع المحلي (بدون إنترنت)' : 'Mode Local')}
-          </Text>
+      {/* Toast Banner */}
+      {toastMessage ? (
+        <View style={styles.toastBanner}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
         </View>
-        {lastSyncTime && <Text style={styles.syncTimeText}>{lastSyncTime}</Text>}
-      </View>
+      ) : null}
 
       {/* Total Debt Banner */}
       <View style={[styles.debtBanner, isRTL && styles.rowReverse]}>
@@ -457,7 +457,7 @@ export default function CustomersScreen() {
         />
       )}
 
-      {/* Add Customer Modal */}
+      {/* Add Customer Modal (Closes Directly on Validation) */}
       <Modal visible={addModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -505,6 +505,7 @@ export default function CustomersScreen() {
                 placeholder="0"
               />
 
+              {/* Direct Save Button */}
               <TouchableOpacity style={styles.submitBtn} onPress={handleAddCustomer}>
                 <Text style={styles.submitBtnText}>{t('save')}</Text>
               </TouchableOpacity>
@@ -513,13 +514,13 @@ export default function CustomersScreen() {
         </View>
       </Modal>
 
-      {/* Edit Customer Modal */}
+      {/* Edit Customer Modal (Closes Directly on Validation) */}
       <Modal visible={editModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
               <Text style={styles.modalTitle}>
-                {isRTL ? 'تعديل بيانات الزبون والديون' : 'Modifier le Client & Crédit'}
+                {isRTL ? 'تعديل بيانات الزبون' : 'Modifier le Client'}
               </Text>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
                 <Ionicons name="close" size={24} color={theme.colors.text} />
@@ -553,7 +554,7 @@ export default function CustomersScreen() {
               />
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
-                {isRTL ? 'مبلغ الديون / الكريدي الحالي' : 'Montant de la Dette / Crédit'}
+                {isRTL ? 'مبلغ الديون الحالي' : 'Montant de la Dette'}
               </Text>
               <TextInput
                 style={[styles.inputBox, isRTL && styles.textRight]}
@@ -563,17 +564,16 @@ export default function CustomersScreen() {
                 placeholder="0"
               />
 
+              {/* Direct Save Button */}
               <TouchableOpacity style={styles.submitBtn} onPress={handleSaveEdit}>
-                <Text style={styles.submitBtnText}>
-                  {isRTL ? 'حفظ التعديلات في فايربيس' : 'Enregistrer les modifications'}
-                </Text>
+                <Text style={styles.submitBtnText}>{t('save')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Payment (Encaisser Versement) Modal */}
+      {/* Payment Modal */}
       <Modal visible={paymentModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -614,14 +614,14 @@ export default function CustomersScreen() {
 
             <TouchableOpacity style={styles.submitBtn} onPress={handleConfirmPayment}>
               <Text style={styles.submitBtnText}>
-                {isRTL ? 'تأكيد التسديد وحفظ' : 'Valider le paiement'}
+                {isRTL ? 'تأكيد التسديد' : 'Valider le paiement'}
               </Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Share Debt Reminder Modal (WhatsApp, Email, Print, Copy) */}
+      {/* Share Debt Reminder Modal */}
       <Modal visible={shareModalVisible} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -643,14 +643,12 @@ export default function CustomersScreen() {
                   </Text>
                 </View>
 
-                {/* Formatted Message Preview */}
                 <View style={styles.sharePreviewBox}>
                   <Text style={styles.sharePreviewText}>
                     {generateDebtMessage(shareDebtCustomer)}
                   </Text>
                 </View>
 
-                {/* Direct WhatsApp Share */}
                 <TouchableOpacity
                   style={styles.modalWhatsAppBtn}
                   onPress={() => handleSendWhatsApp(shareDebtCustomer)}
@@ -661,7 +659,6 @@ export default function CustomersScreen() {
                   </Text>
                 </TouchableOpacity>
 
-                {/* Direct Email Share */}
                 <View style={styles.shareEmailRow}>
                   <TextInput
                     style={[styles.inputBox, { flex: 1, marginRight: 6 }, isRTL && styles.textRight]}
@@ -680,7 +677,6 @@ export default function CustomersScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Copy Text Button */}
                 <TouchableOpacity
                   style={styles.copyMsgBtn}
                   onPress={() => handleCopyDebtMessage(shareDebtCustomer)}
@@ -717,46 +713,17 @@ const styles = StyleSheet.create({
   alignRight: {
     alignItems: 'flex-end',
   },
-  syncStatusBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  toastBanner: {
+    backgroundColor: '#10b981',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
-    marginHorizontal: theme.spacing.md,
-    marginTop: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: 6,
-    borderRadius: theme.borderRadius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    justifyContent: 'center',
   },
-  syncStatusLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
-  },
-  syncDotGreen: {
-    backgroundColor: theme.colors.success,
-  },
-  syncDotBlue: {
-    backgroundColor: theme.colors.secondary,
-  },
-  syncDotGray: {
-    backgroundColor: theme.colors.textMuted,
-  },
-  syncStatusText: {
-    fontSize: 11,
-    color: theme.colors.textSecondary,
-    fontWeight: '600',
-  },
-  syncTimeText: {
-    fontSize: 10,
-    color: theme.colors.textMuted,
+  toastText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
   debtBanner: {
     backgroundColor: theme.colors.surface,
@@ -800,24 +767,26 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 11,
     fontWeight: 'bold',
-    marginLeft: 3,
+    marginLeft: 4,
   },
   newCustBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.primary,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: theme.borderRadius.full,
+    elevation: 2,
   },
   newCustBtnText: {
     color: '#ffffff',
-    fontWeight: 'bold',
     fontSize: 12,
-    marginLeft: 4,
+    fontWeight: 'bold',
+    marginLeft: 6,
   },
   searchRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
   },
@@ -828,6 +797,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.borderRadius.full,
+    elevation: 1,
+    marginRight: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -835,15 +806,15 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     marginLeft: 6,
-    fontSize: 13,
+    fontSize: theme.typography.regular,
   },
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: theme.colors.surface,
+    paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: theme.borderRadius.full,
-    marginLeft: 6,
     borderWidth: 1,
     borderColor: theme.colors.border,
   },
@@ -860,9 +831,44 @@ const styles = StyleSheet.create({
   filterChipTextActive: {
     color: '#ffffff',
   },
+  emptyContainer: {
+    backgroundColor: theme.colors.surface,
+    margin: theme.spacing.md,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: theme.typography.medium,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginTop: theme.spacing.md,
+  },
+  emptySub: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: theme.spacing.lg,
+  },
+  emptyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: theme.borderRadius.full,
+  },
+  emptyBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+    marginLeft: 6,
+  },
   listContent: {
-    padding: theme.spacing.md,
-    paddingBottom: 40,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: 30,
   },
   customerCard: {
     backgroundColor: theme.colors.surface,
@@ -891,7 +897,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customerNameText: {
-    fontSize: theme.typography.regular,
+    fontSize: theme.typography.medium,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
@@ -903,13 +909,14 @@ const styles = StyleSheet.create({
   customerAddressText: {
     fontSize: 11,
     color: theme.colors.textMuted,
-    marginTop: 1,
+    marginTop: 2,
   },
   customerDebtBox: {
     alignItems: 'flex-end',
+    marginLeft: 8,
   },
   debtValueText: {
-    fontSize: theme.typography.medium,
+    fontSize: 15,
     fontWeight: 'bold',
     marginBottom: 6,
   },
@@ -924,7 +931,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   payBtn: {
-    backgroundColor: theme.colors.success,
+    backgroundColor: theme.colors.primary,
     paddingVertical: 4,
     paddingHorizontal: 8,
     borderRadius: theme.borderRadius.sm,
@@ -936,68 +943,25 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   shareBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    padding: 6,
+    borderRadius: theme.borderRadius.sm,
     backgroundColor: '#e0f2fe',
-    justifyContent: 'center',
-    alignItems: 'center',
     marginRight: 4,
   },
   editBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.secondaryLight,
-    justifyContent: 'center',
-    alignItems: 'center',
+    padding: 6,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: theme.colors.background,
     marginRight: 4,
   },
   deleteBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    padding: 6,
+    borderRadius: theme.borderRadius.sm,
     backgroundColor: theme.colors.dangerLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContainer: {
-    backgroundColor: theme.colors.surface,
-    margin: theme.spacing.md,
-    borderRadius: theme.borderRadius.lg,
-    padding: theme.spacing.xl,
-    alignItems: 'center',
-  },
-  emptyTitle: {
-    fontSize: theme.typography.medium,
-    fontWeight: 'bold',
-    color: theme.colors.text,
-    marginTop: theme.spacing.md,
-  },
-  emptySub: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: theme.spacing.md,
-  },
-  emptyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.primary,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.full,
-  },
-  emptyBtnText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-    fontSize: 12,
-    marginLeft: 6,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -1020,24 +984,25 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   modalTitle: {
-    fontSize: theme.typography.header,
+    fontSize: theme.typography.medium,
     fontWeight: 'bold',
     color: theme.colors.text,
   },
   inputLabel: {
-    fontSize: 12,
+    fontSize: theme.typography.small,
     color: theme.colors.textSecondary,
-    marginTop: 8,
     marginBottom: 4,
+    marginTop: theme.spacing.sm,
     fontWeight: '600',
   },
   inputBox: {
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.borderRadius.md,
-    height: 42,
+    height: 44,
     paddingHorizontal: theme.spacing.md,
-    fontSize: 14,
+    fontSize: theme.typography.regular,
+    backgroundColor: '#ffffff',
     color: theme.colors.text,
   },
   submitBtn: {
@@ -1046,19 +1011,18 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.full,
     alignItems: 'center',
     marginTop: theme.spacing.lg,
+    elevation: 2,
   },
   submitBtnText: {
     color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: theme.typography.medium,
   },
   customerNoticeBanner: {
     backgroundColor: '#f8fafc',
-    padding: 10,
+    padding: 12,
     borderRadius: theme.borderRadius.md,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    marginBottom: 12,
   },
   noticeCustName: {
     fontSize: 14,
@@ -1068,14 +1032,15 @@ const styles = StyleSheet.create({
   noticeCustDebt: {
     fontSize: 12,
     color: theme.colors.textSecondary,
-    marginTop: 2,
+    marginTop: 4,
   },
   boldRed: {
     color: theme.colors.danger,
     fontWeight: 'bold',
   },
   shareCustHeader: {
-    marginBottom: 10,
+    alignItems: 'center',
+    marginBottom: 12,
   },
   shareCustName: {
     fontSize: 16,
@@ -1083,7 +1048,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   shareCustDebt: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: 'bold',
     color: theme.colors.danger,
     marginTop: 2,
@@ -1092,13 +1057,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     padding: 12,
     borderRadius: theme.borderRadius.md,
-    marginVertical: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    marginBottom: 12,
   },
   sharePreviewText: {
     fontSize: 12,
-    color: '#334155',
+    color: theme.colors.text,
     lineHeight: 18,
   },
   modalWhatsAppBtn: {
@@ -1108,13 +1071,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#25D366',
     paddingVertical: 10,
     borderRadius: theme.borderRadius.md,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   modalEmailBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#0284c7',
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: theme.borderRadius.md,
@@ -1134,16 +1097,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: theme.borderRadius.md,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: '#f8fafc',
+    borderRadius: theme.borderRadius.md,
   },
   copyMsgBtnText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: theme.colors.text,
-    marginLeft: 4,
+    marginLeft: 6,
   },
 });
