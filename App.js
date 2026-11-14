@@ -36,6 +36,7 @@ function MainTabs() {
     refreshAllFromFirebase,
     firebaseConnected,
     firebaseError,
+    cloudflareConnected,
     isRTL,
   } = useApp();
 
@@ -83,7 +84,7 @@ function MainTabs() {
               </View>
             )}
 
-            {/* Cloud Sync Status Icon */}
+            {/* Firebase Sync Status Icon */}
             <TouchableOpacity
               style={[
                 styles.headerIconBtn,
@@ -95,6 +96,21 @@ function MainTabs() {
                 name={firebaseConnected ? 'cloud-done' : (firebaseError ? 'cloud-offline' : 'cloud-outline')}
                 size={18}
                 color={firebaseConnected ? '#86efac' : (firebaseError ? '#fca5a5' : '#ffffff')}
+              />
+            </TouchableOpacity>
+
+            {/* Cloudflare D1 Status Icon */}
+            <TouchableOpacity
+              style={[
+                styles.headerIconBtn,
+                cloudflareConnected ? { backgroundColor: 'rgba(249, 115, 22, 0.3)' } : {}
+              ]}
+              onPress={() => navigation.navigate('Settings')}
+            >
+              <Ionicons
+                name="server-outline"
+                size={17}
+                color={cloudflareConnected ? '#fdba74' : 'rgba(255,255,255,0.7)'}
               />
             </TouchableOpacity>
 

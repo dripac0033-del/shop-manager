@@ -55,6 +55,17 @@ export default function SettingsScreen() {
     downloadAllDataFromCloud,
     testCloudHealth,
     refreshAllFromFirebase,
+    // Cloudflare D1
+    cloudflareConfig,
+    cloudflareConnected,
+    cloudflareError,
+    cloudflareLastSync,
+    applyCloudflareConfig,
+    uploadAllDataToCloudflare,
+    downloadAllDataFromCloudflare,
+    initCloudflareD1Tables,
+    testCloudflareHealth,
+    refreshAllFromCloudflare,
   } = useApp();
 
   const [name, setName] = useState(storeInfo.name || '');
@@ -70,6 +81,14 @@ export default function SettingsScreen() {
   const [authDomain, setAuthDomain] = useState(firebaseConfig?.authDomain || DEFAULT_FIREBASE_CONFIG.authDomain);
   const [testingHealth, setTestingHealth] = useState(false);
   const [testResult, setTestResult] = useState(null);
+
+  // Cloudflare D1 form fields
+  const [cfAccountId, setCfAccountId] = useState(cloudflareConfig?.accountId || '');
+  const [cfDatabaseId, setCfDatabaseId] = useState(cloudflareConfig?.databaseId || '');
+  const [cfApiToken, setCfApiToken] = useState(cloudflareConfig?.apiToken || '');
+  const [cfWorkerUrl, setCfWorkerUrl] = useState(cloudflareConfig?.workerUrl || '');
+  const [testingCf, setTestingCf] = useState(false);
+  const [cfSyncing, setCfSyncing] = useState(false);
 
   // New User Form Modal (Dedicated 'users' collection)
   const [userModalVisible, setUserModalVisible] = useState(false);
@@ -100,6 +119,15 @@ export default function SettingsScreen() {
       if (firebaseConfig.authDomain) setAuthDomain(firebaseConfig.authDomain);
     }
   }, [firebaseConfig]);
+
+  useEffect(() => {
+    if (cloudflareConfig) {
+      if (cloudflareConfig.accountId) setCfAccountId(cloudflareConfig.accountId);
+      if (cloudflareConfig.databaseId) setCfDatabaseId(cloudflareConfig.databaseId);
+      if (cloudflareConfig.apiToken) setCfApiToken(cloudflareConfig.apiToken);
+      if (cloudflareConfig.workerUrl) setCfWorkerUrl(cloudflareConfig.workerUrl);
+    }
+  }, [cloudflareConfig]);
 
   const handleSaveStoreInfo = async () => {
     await setStoreInfo({ name, phone, address, footer });
@@ -224,6 +252,116 @@ export default function SettingsScreen() {
         isRTL ? 'خطأ في التحميل من السحابة' : 'Erreur de récupération depuis le Cloud',
         err.message
       );
+    }
+  };
+
+  // Cloudflare D1 Handlers
+  const handleSaveCloudflareConfig = async () => {
+    if (!cfWorkerUrl.trim() && (!cfAccountId.trim() || !cfDatabaseId.trim() || !cfApiToken.trim())) {
+      Alert.alert(
+        'Cloudflare D1',
+        isRTL
+          ? 'يرجى إدخال إما رابط Cloudflare Worker أو (Account ID + Database ID + API Token)!'
+          : 'Veuillez saisir soit une URL Worker Cloudflare, soit (Account ID + Database ID + API Token) !'
+      );
+      return;
+    }
+
+    const conf = {
+      accountId: cfAccountId.trim(),
+      databaseId: cfDatabaseId.trim(),
+      apiToken: cfApiToken.trim(),
+      workerUrl: cfWorkerUrl.trim(),
+    };
+
+    const res = await applyCloudflareConfig(conf);
+    if (res.success) {
+      showToast(isRTL ? '✅ تم حفظ إعدادات Cloudflare بنجاح' : '✅ Configuration Cloudflare D1 enregistrée');
+    } else {
+      Alert.alert('Cloudflare', res.error || 'Erreur');
+    }
+  };
+
+  const handleTestCloudflare = async () => {
+    setTestingCf(true);
+    try {
+      const res = await testCloudflareHealth();
+      if (res.success) {
+        showToast(isRTL ? '✅ الاتصال بـ Cloudflare D1 ناجح ومثالي!' : '✅ Connexion Cloudflare D1 réussie et active !');
+        Alert.alert(
+          isRTL ? 'اتصال ناجح' : 'Connexion Cloudflare Réussie',
+          isRTL
+            ? `قاعدة بيانات Cloudflare D1 متصلة بنجاح (${res.mode === 'worker' ? 'عبر Worker' : 'مباشرة عبر REST API'}).`
+            : `La base D1 répond parfaitement (${res.mode === 'worker' ? 'via Cloudflare Worker' : 'via API REST directe'}).`
+        );
+      } else {
+        Alert.alert(
+          isRTL ? 'تنبيه الاتصال بـ Cloudflare' : 'Échec de connexion Cloudflare D1',
+          res.error || 'Impossible de joindre Cloudflare D1'
+        );
+      }
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setTestingCf(false);
+    }
+  };
+
+  const handleInitCloudflareTables = async () => {
+    setTestingCf(true);
+    try {
+      const res = await initCloudflareD1Tables();
+      if (res.success) {
+        showToast(isRTL ? '✅ تم تهيئة وتحديث جداول SQL D1 بنجاح' : '✅ Tables SQL D1 initialisées avec succès');
+        Alert.alert(
+          isRTL ? 'جداول D1 جاهزة' : 'Tables D1 SQL Prêtes',
+          isRTL
+            ? 'تم إنشاء وتحديث الجداول: products, categories, customers, sales, transactions, services, repairs, expenses, store_info.'
+            : 'Toutes les tables requises (produits, ventes, clients, dépenses, réparations, transactions...) sont créées sur Cloudflare D1.'
+        );
+      } else {
+        Alert.alert('Erreur Tables D1', res.error || 'Erreur');
+      }
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setTestingCf(false);
+    }
+  };
+
+  const handlePushAllCloudflare = async () => {
+    setCfSyncing(true);
+    try {
+      const res = await uploadAllDataToCloudflare();
+      const countMsg = `✅ ${res.counts.products} produits, ${res.counts.customers} clients, ${res.counts.sales} ventes, ${res.counts.transactions} transactions synchronisés vers Cloudflare D1 !`;
+      const countMsgAr = `✅ تمت مزامنة ${res.counts.products} منتج، ${res.counts.customers} زبون، ${res.counts.sales} مبيعات في Cloudflare D1 بنجاح!`;
+      showToast(isRTL ? countMsgAr : countMsg);
+      Alert.alert(
+        isRTL ? 'مزامنة Cloudflare ناجحة' : 'Exportation Complète vers Cloudflare D1',
+        isRTL ? countMsgAr : countMsg
+      );
+    } catch (err) {
+      Alert.alert('Cloudflare Export', err.message);
+    } finally {
+      setCfSyncing(false);
+    }
+  };
+
+  const handlePullAllCloudflare = async () => {
+    setCfSyncing(true);
+    try {
+      const res = await downloadAllDataFromCloudflare();
+      const msg = `✅ ${res.count} enregistrements importés depuis Cloudflare D1 !`;
+      const msgAr = `✅ تم استيراد ${res.count} سجل من Cloudflare D1 بنجاح!`;
+      showToast(isRTL ? msgAr : msg);
+      Alert.alert(
+        isRTL ? 'استيراد ناجح' : 'Importation Complète depuis Cloudflare D1',
+        isRTL ? msgAr : msg
+      );
+    } catch (err) {
+      Alert.alert('Cloudflare Import', err.message);
+    } finally {
+      setCfSyncing(false);
     }
   };
 
@@ -647,6 +785,188 @@ export default function SettingsScreen() {
                   <Text style={styles.syncBtnText}>{isRTL ? 'تحديث' : 'Actualiser'}</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Cloudflare D1 Database & Hybrid Architecture Card */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse, { marginTop: 24 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="server" size={20} color="#f97316" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('cloudflareDatabase') || 'Base Cloudflare D1'}</Text>
+        </View>
+        <View
+          style={[
+            styles.statusPill,
+            cloudflareConnected ? styles.statusPillGreen : styles.statusPillGray,
+          ]}
+        >
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: cloudflareConnected ? theme.colors.success : theme.colors.textMuted },
+            ]}
+          />
+          <Text
+            style={[
+              styles.statusPillText,
+              { color: cloudflareConnected ? theme.colors.success : theme.colors.textMuted },
+            ]}
+          >
+            {cloudflareConnected ? (isRTL ? 'D1 متصل' : 'D1 Connecté') : (isRTL ? 'D1 غير متصل' : 'D1 Déconnecté')}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        {/* Hybrid Architecture Notice */}
+        <View style={styles.hybridNoticeBox}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons name="git-branch" size={20} color="#0284c7" />
+            <Text style={[styles.hybridNoticeTitle, { marginLeft: 8 }]}>
+              {isRTL ? '⚡ الهيكلية الهجينة المزدوجة (Firebase + Cloudflare)' : '⚡ Architecture Hybride Découplée (Firebase + Cloudflare)'}
+            </Text>
+          </View>
+          <Text style={[styles.hybridNoticeText, isRTL && styles.textRight]}>
+            {t('hybridArchitectureNotice') ||
+              'Firebase stocke et sécurise les utilisateurs, mots de passe et sessions. Cloudflare D1 stocke massivement les données métier : produits, catégories, clients, ventes, réparations, services et transactions sans limite de stockage.'}
+          </Text>
+          <View style={[styles.hybridRolesRow, isRTL && styles.rowReverse]}>
+            <View style={styles.hybridRolePill}>
+              <Ionicons name="lock-closed" size={12} color="#059669" />
+              <Text style={styles.hybridRolePillText}>Firebase : Users & Auth</Text>
+            </View>
+            <View style={[styles.hybridRolePill, { backgroundColor: '#fff7ed', borderColor: '#fed7aa' }]}>
+              <Ionicons name="cube" size={12} color="#f97316" />
+              <Text style={[styles.hybridRolePillText, { color: '#c2410c' }]}>Cloudflare D1 : Stock, Ventes & Données</Text>
+            </View>
+          </View>
+        </View>
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Worker URL ({isRTL ? 'اختياري في حال استخدام وركر' : 'Optionnel si Worker déployé'})</Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={cfWorkerUrl}
+          onChangeText={setCfWorkerUrl}
+          placeholder="https://shop-manager-d1.votre-nom.workers.dev"
+          autoCapitalize="none"
+        />
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('cloudflareAccountId') || 'Cloudflare Account ID'}</Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={cfAccountId}
+          onChangeText={setCfAccountId}
+          placeholder="ex: a1b2c3d4e5f6..."
+          autoCapitalize="none"
+        />
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('cloudflareDatabaseId') || 'Cloudflare Database ID (D1 UUID)'}</Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={cfDatabaseId}
+          onChangeText={setCfDatabaseId}
+          placeholder="ex: 12345678-abcd-ef01-2345-6789abcdef01"
+          autoCapitalize="none"
+        />
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('cloudflareApiToken') || 'Cloudflare API Token (Permissions D1:Edit)'}</Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={cfApiToken}
+          onChangeText={setCfApiToken}
+          placeholder="ex: token_d1_..."
+          secureTextEntry
+          autoCapitalize="none"
+        />
+
+        {/* Buttons Row: Test D1 & Save Config */}
+        <View style={[styles.testBtnRow, isRTL && styles.rowReverse, { marginTop: 12 }]}>
+          <TouchableOpacity
+            style={[styles.testBtn, { backgroundColor: '#f97316', flex: 1.3, marginRight: 8 }]}
+            onPress={handleTestCloudflare}
+            disabled={testingCf}
+          >
+            {testingCf ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <Ionicons name="pulse" size={18} color="#ffffff" />
+                <Text style={styles.testBtnText}>{t('testCloudflareConnection') || 'Tester Cloudflare'}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.saveConfBtn, { flex: 1 }]} onPress={handleSaveCloudflareConfig}>
+            <Ionicons name="save-outline" size={18} color="#ffffff" />
+            <Text style={styles.saveConfBtnText}>{t('save')}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* SQL Tables Init & Sync */}
+        <View style={styles.syncActionsBox}>
+          <View style={[styles.syncHeaderRow, isRTL && styles.rowReverse]}>
+            <Text style={styles.syncSubTitle}>
+              {isRTL ? 'إجراءات ومزامنة Cloudflare D1' : 'Actions & Synchronisation D1'}
+            </Text>
+            {cloudflareLastSync && (
+              <Text style={styles.lastSyncText}>
+                {isRTL ? 'آخر مزامنة:' : 'Dernière synchro:'} {cloudflareLastSync}
+              </Text>
+            )}
+          </View>
+
+          {cfSyncing ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator size="small" color="#f97316" />
+              <Text style={styles.syncingText}>{isRTL ? 'جاري الاتصال بـ Cloudflare...' : 'Opération Cloudflare D1 en cours...'}</Text>
+            </View>
+          ) : (
+            <View style={{ gap: 8 }}>
+              {/* Init SQL Tables Button */}
+              <TouchableOpacity
+                style={[styles.testBtn, { backgroundColor: '#334155', paddingVertical: 10 }]}
+                onPress={handleInitCloudflareTables}
+                disabled={testingCf}
+              >
+                <Ionicons name="hammer-outline" size={18} color="#ffffff" />
+                <Text style={[styles.testBtnText, { marginLeft: 8 }]}>
+                  {t('initCloudflareTables') || 'Créer / Mettre à jour les tables SQL D1'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Push all to Cloudflare */}
+              <TouchableOpacity
+                style={[styles.pushAllBtn, { backgroundColor: '#ea580c' }]}
+                onPress={handlePushAllCloudflare}
+              >
+                <Ionicons name="cloud-upload" size={24} color="#ffffff" />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={styles.pushAllBtnTitle}>
+                    {t('pushToCloudflare') || 'Envoyer toutes les données vers Cloudflare'}
+                  </Text>
+                  <Text style={styles.pushAllBtnSub}>
+                    {isRTL ? 'مزامنة وحفظ المنتجات، الزبائن، المبيعات والعمليات في قاعدة بيانات D1' : 'Sauvegarder le stock, clients, ventes et écritures dans Cloudflare D1'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Pull all from Cloudflare */}
+              <TouchableOpacity
+                style={[styles.pullAllBtn, { backgroundColor: '#0284c7' }]}
+                onPress={handlePullAllCloudflare}
+              >
+                <Ionicons name="cloud-download" size={24} color="#ffffff" />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={styles.pullAllBtnTitle}>
+                    {t('pullFromCloudflare') || 'Récupérer toutes les données de Cloudflare'}
+                  </Text>
+                  <Text style={styles.pullAllBtnSub}>
+                    {isRTL ? 'استيراد كل قاعدة البيانات من D1 إلى التطبيق' : 'Rapatrier tout le contenu D1 sur cette session'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -1455,5 +1775,45 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: 'bold',
     fontSize: 13,
+  },
+  hybridNoticeBox: {
+    backgroundColor: '#f0f9ff',
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    marginBottom: 12,
+  },
+  hybridNoticeTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#0369a1',
+  },
+  hybridNoticeText: {
+    fontSize: 11,
+    color: '#0c4a6e',
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  hybridRolesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  hybridRolePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.full,
+  },
+  hybridRolePillText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#065f46',
+    marginLeft: 4,
   },
 });

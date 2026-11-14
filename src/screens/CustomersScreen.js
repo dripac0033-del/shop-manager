@@ -21,6 +21,8 @@ export default function CustomersScreen() {
     t,
     formatMoney,
     customers = [],
+    sales = [],
+    transactions = [],
     addCustomer,
     updateCustomer,
     deleteCustomer,
@@ -41,21 +43,25 @@ export default function CustomersScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [dossierModalVisible, setDossierModalVisible] = useState(false);
+  const [dossierCustomer, setDossierCustomer] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [shareDebtCustomer, setShareDebtCustomer] = useState(null);
   const [shareEmailInput, setShareEmailInput] = useState('');
   const [copiedDebtText, setCopiedDebtText] = useState(false);
 
-  // Add Form State
+  // Add Form State (Includes Description / Notes)
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [description, setDescription] = useState('');
   const [initialDebt, setInitialDebt] = useState('');
 
-  // Edit Form State
+  // Edit Form State (Includes Description / Notes)
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editAddress, setEditAddress] = useState('');
+  const [editDescription, setEditDescription] = useState('');
   const [editDebt, setEditDebt] = useState('');
 
   // Payment Form
@@ -72,9 +78,11 @@ export default function CustomersScreen() {
 
   const filteredCustomers = validCustomers.filter((c) => {
     if (!c) return false;
-    const nameMatch = (c.name || '').toLowerCase().includes(searchQuery.toLowerCase());
-    const phoneMatch = c.phone && c.phone.includes(searchQuery);
-    const matchesSearch = nameMatch || phoneMatch;
+    const q = searchQuery.toLowerCase().trim();
+    const nameMatch = (c.name || '').toLowerCase().includes(q);
+    const phoneMatch = c.phone && c.phone.includes(q);
+    const descMatch = (c.description || '').toLowerCase().includes(q);
+    const matchesSearch = !q || nameMatch || phoneMatch || descMatch;
     const matchesDebt = filterDebtOnly ? (c.debt || 0) > 0 : true;
     return matchesSearch && matchesDebt;
   });
@@ -90,6 +98,7 @@ export default function CustomersScreen() {
       name: name.trim(),
       phone: phone.trim(),
       address: address.trim(),
+      description: description.trim(),
       debt: Number(initialDebt || 0),
     };
 
@@ -98,6 +107,7 @@ export default function CustomersScreen() {
     setName('');
     setPhone('');
     setAddress('');
+    setDescription('');
     setInitialDebt('');
 
     try {
@@ -113,8 +123,14 @@ export default function CustomersScreen() {
     setEditName(customer.name || '');
     setEditPhone(customer.phone || '');
     setEditAddress(customer.address || '');
+    setEditDescription(customer.description || '');
     setEditDebt((customer.debt || 0).toString());
     setEditModalVisible(true);
+  };
+
+  const handleOpenDossier = (customer) => {
+    setDossierCustomer(customer);
+    setDossierModalVisible(true);
   };
 
   // Direct Validation & Instant Window Closure
@@ -130,6 +146,7 @@ export default function CustomersScreen() {
       name: editName.trim(),
       phone: editPhone.trim(),
       address: editAddress.trim(),
+      description: editDescription.trim(),
       debt: Number(editDebt || 0),
     };
 
@@ -398,7 +415,9 @@ export default function CustomersScreen() {
                 </View>
 
                 <View style={[styles.customerMeta, isRTL && styles.alignRight]}>
-                  <Text style={styles.customerNameText}>{item.name}</Text>
+                  <TouchableOpacity onPress={() => handleOpenDossier(item)}>
+                    <Text style={styles.customerNameText}>{item.name}</Text>
+                  </TouchableOpacity>
                   {item.phone ? (
                     <Text style={styles.customerPhoneText}>
                       <Ionicons name="call-outline" size={12} /> {item.phone}
@@ -409,6 +428,14 @@ export default function CustomersScreen() {
                       <Ionicons name="location-outline" size={12} /> {item.address}
                     </Text>
                   ) : null}
+                  {item.description ? (
+                    <View style={[styles.customerDescPill, isRTL && styles.rowReverse]}>
+                      <Ionicons name="document-text" size={12} color="#64748b" style={{ marginRight: 4 }} />
+                      <Text style={styles.customerDescPillText} numberOfLines={2}>
+                        {item.description}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 <View style={styles.customerDebtBox}>
@@ -417,6 +444,24 @@ export default function CustomersScreen() {
                   </Text>
 
                   <View style={[styles.actionButtonsRow, isRTL && styles.rowReverse]}>
+                    <TouchableOpacity
+                      style={styles.dossierBtn}
+                      onPress={() => handleOpenDossier(item)}
+                      title={t('customerDossier')}
+                    >
+                      <Ionicons name="folder-open" size={15} color="#8b5cf6" />
+                    </TouchableOpacity>
+
+                    {item.phone ? (
+                      <TouchableOpacity
+                        style={styles.callBtn}
+                        onPress={() => Linking.openURL(`tel:${item.phone}`)}
+                        title={t('callCustomer')}
+                      >
+                        <Ionicons name="call" size={14} color="#0284c7" />
+                      </TouchableOpacity>
+                    ) : null}
+
                     {hasDebt && (
                       <TouchableOpacity
                         style={styles.payBtn}
@@ -432,7 +477,7 @@ export default function CustomersScreen() {
                         onPress={() => handleOpenShare(item)}
                         title="Partager"
                       >
-                        <Ionicons name="share-social-outline" size={16} color="#0284c7" />
+                        <Ionicons name="logo-whatsapp" size={15} color="#16a34a" />
                       </TouchableOpacity>
                     )}
 
@@ -494,6 +539,17 @@ export default function CustomersScreen() {
                 placeholder="Ex: Alger Centre"
               />
 
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('description')}</Text>
+              <TextInput
+                style={[styles.inputBox, styles.textArea, isRTL && styles.textRight]}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                numberOfLines={3}
+                placeholder={t('customerDescriptionPlaceholder')}
+                placeholderTextColor={theme.colors.textMuted}
+              />
+
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
                 {t('currentDebt')} ({isRTL ? 'الرصيد الأولي' : 'Solde initial'})
               </Text>
@@ -551,6 +607,17 @@ export default function CustomersScreen() {
                 value={editAddress}
                 onChangeText={setEditAddress}
                 placeholder="Ex: Alger Centre"
+              />
+
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('description')}</Text>
+              <TextInput
+                style={[styles.inputBox, styles.textArea, isRTL && styles.textRight]}
+                value={editDescription}
+                onChangeText={setEditDescription}
+                multiline
+                numberOfLines={3}
+                placeholder={t('customerDescriptionPlaceholder')}
+                placeholderTextColor={theme.colors.textMuted}
               />
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
@@ -691,6 +758,161 @@ export default function CustomersScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Detailed Customer Dossier / Statement Modal */}
+      <Modal visible={dossierModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.dossierModalCard}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="folder-open" size={22} color="#8b5cf6" style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>{t('customerDossier')}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setDossierModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {dossierCustomer && (
+              <ScrollView style={{ maxHeight: 520 }} showsVerticalScrollIndicator={false}>
+                {/* Profile Header */}
+                <View style={styles.dossierHeader}>
+                  <View style={[styles.dossierAvatar, (dossierCustomer.debt || 0) > 0 && styles.customerAvatarDebt]}>
+                    <Ionicons
+                      name="person"
+                      size={28}
+                      color={(dossierCustomer.debt || 0) > 0 ? theme.colors.danger : theme.colors.primary}
+                    />
+                  </View>
+                  <Text style={styles.dossierName}>{dossierCustomer.name}</Text>
+                  {dossierCustomer.phone ? (
+                    <Text style={styles.dossierPhone}>
+                      <Ionicons name="call" size={13} color="#0284c7" /> {dossierCustomer.phone}
+                    </Text>
+                  ) : null}
+                  {dossierCustomer.address ? (
+                    <Text style={styles.dossierAddress}>
+                      <Ionicons name="location" size={13} color="#64748b" /> {dossierCustomer.address}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {/* Balance & Debt Status */}
+                <View style={styles.dossierDebtBanner}>
+                  <Text style={styles.dossierDebtTitle}>{t('currentDebt')}</Text>
+                  <Text style={[styles.dossierDebtValue, (dossierCustomer.debt || 0) > 0 ? styles.textRed : styles.textGreen]}>
+                    {formatMoney(dossierCustomer.debt || 0)}
+                  </Text>
+                  <Text style={styles.dossierDebtSub}>
+                    {(dossierCustomer.debt || 0) > 0
+                      ? isRTL ? 'رصيد مطلوب تسديده' : 'Solde débiteur à recouvrer'
+                      : isRTL ? 'الحساب مسدد بالكامل' : 'Compte en règle (Aucune dette)'}
+                  </Text>
+                </View>
+
+                {/* Description & Remarks Field */}
+                <View style={styles.dossierDescSection}>
+                  <View style={[styles.dossierDescHeader, isRTL && styles.rowReverse]}>
+                    <Ionicons name="document-text" size={16} color="#475569" style={{ marginRight: 6 }} />
+                    <Text style={styles.dossierDescHeading}>{t('description')}</Text>
+                  </View>
+                  <Text style={[styles.dossierDescContent, isRTL && styles.textRight]}>
+                    {dossierCustomer.description || (isRTL ? 'لا توجد ملاحظات مسجلة لهذا الزبون.' : 'Aucune description ou remarque renseignée.')}
+                  </Text>
+                </View>
+
+                {/* Customer Sales & Ledger History */}
+                <View style={styles.dossierHistorySection}>
+                  <Text style={[styles.dossierHistoryTitle, isRTL && styles.textRight]}>
+                    {t('transactionHistory')}
+                  </Text>
+
+                  {sales.filter((s) => s.customerId === dossierCustomer.id).length === 0 &&
+                  transactions.filter((t) => t.customerId === dossierCustomer.id).length === 0 ? (
+                    <Text style={[styles.emptyHistoryText, isRTL && styles.textRight]}>
+                      {isRTL ? 'لا توجد عمليات مسجلة حتى الآن' : 'Aucun achat ou paiement enregistré'}
+                    </Text>
+                  ) : (
+                    <>
+                      {/* Recent Purchases */}
+                      {sales
+                        .filter((s) => s.customerId === dossierCustomer.id)
+                        .slice(0, 5)
+                        .map((s) => (
+                          <View key={s.id} style={[styles.dossierHistoryItem, isRTL && styles.rowReverse]}>
+                            <View>
+                              <Text style={styles.historyItemTitle}>
+                                🛒 {isRTL ? 'عملية بيع' : 'Achat'} #{s.id.slice(-6)}
+                              </Text>
+                              <Text style={styles.historyItemDate}>
+                                {new Date(s.date).toLocaleDateString()} • {s.items?.length || 0} {t('itemsCount')}
+                              </Text>
+                            </View>
+                            <Text style={styles.historyItemAmount}>{formatMoney(s.total)}</Text>
+                          </View>
+                        ))}
+
+                      {/* Recent Payments */}
+                      {transactions
+                        .filter((tx) => tx.customerId === dossierCustomer.id && tx.type === 'debt_payment')
+                        .slice(0, 5)
+                        .map((tx) => (
+                          <View key={tx.id} style={[styles.dossierHistoryItem, isRTL && styles.rowReverse]}>
+                            <View>
+                              <Text style={[styles.historyItemTitle, { color: '#16a34a' }]}>
+                                💵 {isRTL ? 'تسديد دفعة' : 'Règlement dette'}
+                              </Text>
+                              <Text style={styles.historyItemDate}>{new Date(tx.date).toLocaleDateString()}</Text>
+                            </View>
+                            <Text style={[styles.historyItemAmount, { color: '#16a34a' }]}>
+                              +{formatMoney(tx.amount)}
+                            </Text>
+                          </View>
+                        ))}
+                    </>
+                  )}
+                </View>
+
+                {/* Quick Dossier Actions */}
+                <View style={[styles.dossierActionsRow, isRTL && styles.rowReverse]}>
+                  {(dossierCustomer.debt || 0) > 0 && (
+                    <TouchableOpacity
+                      style={styles.dossierPayBtn}
+                      onPress={() => {
+                        setDossierModalVisible(false);
+                        handleOpenPayment(dossierCustomer);
+                      }}
+                    >
+                      <Ionicons name="cash" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                      <Text style={styles.dossierActionBtnText}>{t('recordPayment')}</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {dossierCustomer.phone ? (
+                    <TouchableOpacity
+                      style={styles.dossierCallBtn}
+                      onPress={() => Linking.openURL(`tel:${dossierCustomer.phone}`)}
+                    >
+                      <Ionicons name="call" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                      <Text style={styles.dossierActionBtnText}>{t('callCustomer')}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {(dossierCustomer.debt || 0) > 0 && (
+                    <TouchableOpacity
+                      style={styles.dossierWaBtn}
+                      onPress={() => handleSendWhatsApp(dossierCustomer)}
+                    >
+                      <Ionicons name="logo-whatsapp" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                      <Text style={styles.dossierActionBtnText}>WhatsApp</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </ScrollView>
             )}
           </View>
         </View>
@@ -1107,5 +1329,200 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.text,
     marginLeft: 6,
+  },
+  textArea: {
+    minHeight: 65,
+    paddingTop: 8,
+    textAlignVertical: 'top',
+  },
+  customerDescPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  customerDescPillText: {
+    fontSize: 11,
+    color: '#475569',
+    fontStyle: 'italic',
+  },
+  dossierBtn: {
+    padding: 6,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#ede9fe',
+    marginRight: 4,
+  },
+  callBtn: {
+    padding: 6,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#e0f2fe',
+    marginRight: 4,
+  },
+  dossierModalCard: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
+    padding: theme.spacing.lg,
+  },
+  dossierHeader: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  dossierAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: theme.colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  dossierName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  dossierPhone: {
+    fontSize: 13,
+    color: '#0284c7',
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  dossierAddress: {
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    marginTop: 2,
+  },
+  dossierDebtBanner: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  dossierDebtTitle: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    fontWeight: '600',
+  },
+  dossierDebtValue: {
+    fontSize: 22,
+    fontWeight: '900',
+    marginVertical: 2,
+  },
+  dossierDebtSub: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+  },
+  dossierDescSection: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  dossierDescHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  dossierDescHeading: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#334155',
+  },
+  dossierDescContent: {
+    fontSize: 12,
+    color: '#475569',
+    lineHeight: 18,
+  },
+  dossierHistorySection: {
+    marginBottom: 14,
+  },
+  dossierHistoryTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+    marginBottom: 8,
+  },
+  dossierHistoryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  historyItemTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  historyItemDate: {
+    fontSize: 10.5,
+    color: theme.colors.textMuted,
+    marginTop: 1,
+  },
+  historyItemAmount: {
+    fontSize: 12.5,
+    fontWeight: 'bold',
+    color: theme.colors.text,
+  },
+  emptyHistoryText: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    fontStyle: 'italic',
+    paddingVertical: 6,
+  },
+  dossierActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  dossierPayBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.danger,
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  dossierCallBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0284c7',
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  dossierWaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#25D366',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  dossierActionBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

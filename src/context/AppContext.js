@@ -46,7 +46,7 @@ import {
   deleteExpenseFromFirebase,
   fetchExpensesFromFirebase,
   subscribeToFirebaseExpenses,
-  // Users
+  // Users (STRICTLY ON FIREBASE)
   saveUserToFirebase,
   deleteUserFromFirebase,
   fetchUsersFromFirebase,
@@ -62,6 +62,50 @@ import {
   clearFirebaseCollection,
   DEFAULT_FIREBASE_CONFIG,
 } from '../services/firebase';
+
+import {
+  getStoredCloudflareConfig,
+  saveCloudflareConfig,
+  checkCloudflareHealth,
+  initCloudflareTables,
+  // Products
+  saveProductToCloudflare,
+  deleteProductFromCloudflare,
+  fetchProductsFromCloudflare,
+  // Categories
+  saveCategoryToCloudflare,
+  deleteCategoryFromCloudflare,
+  fetchCategoriesFromCloudflare,
+  // Customers
+  saveCustomerToCloudflare,
+  deleteCustomerFromCloudflare,
+  fetchCustomersFromCloudflare,
+  // Sales
+  saveSaleToCloudflare,
+  fetchSalesFromCloudflare,
+  // Transactions
+  saveTransactionToCloudflare,
+  fetchTransactionsFromCloudflare,
+  // Services
+  saveServiceToCloudflare,
+  deleteServiceFromCloudflare,
+  fetchServicesFromCloudflare,
+  // Repairs
+  saveRepairToCloudflare,
+  deleteRepairFromCloudflare,
+  fetchRepairsFromCloudflare,
+  // Expenses
+  saveExpenseToCloudflare,
+  deleteExpenseFromCloudflare,
+  fetchExpensesFromCloudflare,
+  // Store Info
+  saveStoreInfoToCloudflare,
+  fetchStoreInfoFromCloudflare,
+  // Bulk
+  uploadAllDataToCloudflare,
+  fetchAllDataFromCloudflare,
+  DEFAULT_CLOUDFLARE_CONFIG,
+} from '../services/cloudflare';
 
 const AppContext = createContext();
 
@@ -120,13 +164,19 @@ export const AppProvider = ({ children }) => {
   // Stock Notification Modal State
   const [stockModalVisible, setStockModalVisible] = useState(false);
 
-  // Firebase Synchronization State
+  // Firebase Synchronization State (User Accounts & Auth remain strictly on Firebase)
   const [firebaseConfig, setFirebaseConfigState] = useState(DEFAULT_FIREBASE_CONFIG);
   const [firebaseConnected, setFirebaseConnected] = useState(false);
   const [firebaseError, setFirebaseError] = useState(null); // null | 'API_DISABLED' | 'PERMISSION_DENIED' | string
   const [firebaseErrorDetails, setFirebaseErrorDetails] = useState(null);
   const [syncStatus, setSyncStatus] = useState('connected'); // 'connected' | 'sending' | 'receiving' | 'offline'
   const [lastSyncTime, setLastSyncTime] = useState(null);
+
+  // Cloudflare D1 Database State (Products, Sales, Customers, Expenses, Services, Repairs)
+  const [cloudflareConfig, setCloudflareConfigState] = useState(DEFAULT_CLOUDFLARE_CONFIG);
+  const [cloudflareConnected, setCloudflareConnected] = useState(false);
+  const [cloudflareError, setCloudflareError] = useState(null);
+  const [cloudflareLastSync, setCloudflareLastSync] = useState(null);
 
   const isLocalUpdateRef = useRef(false);
   const lastActivityRef = useRef(Date.now());
@@ -270,7 +320,7 @@ export const AppProvider = ({ children }) => {
           } catch (e) {}
         }
 
-        // Initialize Firebase
+        // Initialize Firebase (User Accounts & Auth)
         const storedFbConf = await getStoredFirebaseConfig();
         const activeConfig = storedFbConf && storedFbConf.apiKey ? storedFbConf : DEFAULT_FIREBASE_CONFIG;
         setFirebaseConfigState(activeConfig);
@@ -294,6 +344,45 @@ export const AppProvider = ({ children }) => {
           setFirebaseConnected(false);
           setFirebaseError('INIT_FAILED');
           setSyncStatus('offline');
+        }
+
+        // Initialize Cloudflare D1 (High Capacity Database for Products, Sales, Customers, Expenses)
+        try {
+          const storedCfConf = await getStoredCloudflareConfig();
+          setCloudflareConfigState(storedCfConf);
+          if (storedCfConf.accountId || storedCfConf.workerUrl) {
+            const cfHealth = await checkCloudflareHealth(storedCfConf);
+            if (cfHealth.success) {
+              setCloudflareConnected(true);
+              setCloudflareError(null);
+              // Fetch latest products and business data from Cloudflare
+              const cfData = await fetchAllDataFromCloudflare();
+              if (Array.isArray(cfData.products) && cfData.products.length > 0) {
+                setProducts(cfData.products);
+                saveState('@store_products', cfData.products);
+              }
+              if (Array.isArray(cfData.customers) && cfData.customers.length > 0) {
+                setCustomers(cfData.customers);
+                saveState('@store_customers', cfData.customers);
+              }
+              if (Array.isArray(cfData.sales) && cfData.sales.length > 0) {
+                setSales(cfData.sales);
+                saveState('@store_sales', cfData.sales);
+              }
+              if (Array.isArray(cfData.expenses) && cfData.expenses.length > 0) {
+                setExpenses(cfData.expenses);
+                saveState('@store_expenses', cfData.expenses);
+              }
+              setCloudflareLastSync(new Date().toLocaleTimeString());
+            } else {
+              setCloudflareConnected(false);
+              setCloudflareError(cfHealth.error);
+            }
+          }
+        } catch (cfErr) {
+          console.warn('Cloudflare initial check error:', cfErr);
+          setCloudflareConnected(false);
+          setCloudflareError(cfErr.message);
         }
       } catch (err) {
         console.warn('Error during loadData:', err);
@@ -405,6 +494,120 @@ export const AppProvider = ({ children }) => {
       console.warn('Refresh all data error:', err);
       setSyncStatus('connected');
     }
+  };
+
+  // ==============================================================
+  // SAFE REFRESH FROM CLOUDFLARE D1 (Business Data: Products, Sales, Customers, Expenses)
+  // ==============================================================
+  const refreshAllFromCloudflare = async () => {
+    try {
+      setSyncStatus('receiving');
+      const cfData = await fetchAllDataFromCloudflare();
+      let totalCount = 0;
+
+      if (Array.isArray(cfData.products) && cfData.products.length > 0) {
+        setProducts(cfData.products);
+        saveState('@store_products', cfData.products);
+        totalCount += cfData.products.length;
+      }
+      if (Array.isArray(cfData.categories) && cfData.categories.length > 0) {
+        setCategories(cfData.categories);
+        saveState('@store_categories', cfData.categories);
+      }
+      if (Array.isArray(cfData.customers) && cfData.customers.length > 0) {
+        setCustomers(cfData.customers);
+        saveState('@store_customers', cfData.customers);
+        totalCount += cfData.customers.length;
+      }
+      if (Array.isArray(cfData.sales) && cfData.sales.length > 0) {
+        setSales(cfData.sales);
+        saveState('@store_sales', cfData.sales);
+        totalCount += cfData.sales.length;
+      }
+      if (Array.isArray(cfData.transactions) && cfData.transactions.length > 0) {
+        setTransactions(cfData.transactions);
+        saveState('@store_transactions', cfData.transactions);
+      }
+      if (Array.isArray(cfData.services) && cfData.services.length > 0) {
+        setServices(cfData.services);
+        saveState('@store_services', cfData.services);
+      }
+      if (Array.isArray(cfData.repairs) && cfData.repairs.length > 0) {
+        setRepairs(cfData.repairs);
+        saveState('@store_repairs', cfData.repairs);
+      }
+      if (Array.isArray(cfData.expenses) && cfData.expenses.length > 0) {
+        setExpenses(cfData.expenses);
+        saveState('@store_expenses', cfData.expenses);
+      }
+      if (cfData.storeInfo && typeof cfData.storeInfo === 'object') {
+        setStoreInfo(cfData.storeInfo);
+        saveState('@store_info', cfData.storeInfo);
+      }
+
+      setCloudflareConnected(true);
+      setCloudflareError(null);
+      setCloudflareLastSync(new Date().toLocaleTimeString());
+      setSyncStatus('connected');
+      return { success: true, count: totalCount };
+    } catch (err) {
+      console.warn('refreshAllFromCloudflare error:', err);
+      setCloudflareConnected(false);
+      setCloudflareError(err.message);
+      setSyncStatus('connected');
+      throw err;
+    }
+  };
+
+  const applyCloudflareConfig = async (newConfig) => {
+    try {
+      const saved = await saveCloudflareConfig(newConfig);
+      setCloudflareConfigState(saved);
+      const health = await checkCloudflareHealth(saved);
+      if (health.success) {
+        setCloudflareConnected(true);
+        setCloudflareError(null);
+        await initCloudflareTables(saved).catch(() => {});
+        return { success: true };
+      } else {
+        setCloudflareConnected(false);
+        setCloudflareError(health.error);
+        return { success: false, error: health.error };
+      }
+    } catch (err) {
+      setCloudflareConnected(false);
+      setCloudflareError(err.message);
+      return { success: false, error: err.message };
+    }
+  };
+
+  const uploadAllDataToCloudflareHandler = async () => {
+    try {
+      setSyncStatus('sending');
+      const res = await uploadAllDataToCloudflare({
+        products,
+        categories,
+        customers,
+        sales,
+        transactions,
+        services,
+        repairs,
+        expenses,
+        storeInfo,
+      });
+      setCloudflareConnected(true);
+      setCloudflareError(null);
+      setCloudflareLastSync(new Date().toLocaleTimeString());
+      setSyncStatus('connected');
+      return res;
+    } catch (err) {
+      setSyncStatus('connected');
+      throw err;
+    }
+  };
+
+  const downloadAllDataFromCloudflareHandler = async () => {
+    return refreshAllFromCloudflare();
   };
 
   // ==============================================================
@@ -660,6 +863,9 @@ export const AppProvider = ({ children }) => {
     setTransactions(updated);
     saveState('@store_transactions', updated);
 
+    if (cloudflareConnected) {
+      saveTransactionToCloudflare(newTx).catch((e) => console.warn('Cloudflare recordTransaction error:', e));
+    }
     if (isFirebaseReady()) {
       try {
         await saveTransactionToFirebase(newTx);
@@ -691,6 +897,10 @@ export const AppProvider = ({ children }) => {
     const updated = [newProd, ...products];
     setProducts(updated);
     saveState('@store_products', updated);
+
+    if (cloudflareConnected) {
+      saveProductToCloudflare(newProd).catch((e) => console.warn('Cloudflare addProduct error:', e));
+    }
 
     if (isFirebaseReady()) {
       setSyncStatus('sending');
@@ -735,6 +945,10 @@ export const AppProvider = ({ children }) => {
     setProducts(updated);
     saveState('@store_products', updated);
 
+    if (target && cloudflareConnected) {
+      saveProductToCloudflare(target).catch((e) => console.warn('Cloudflare updateProduct error:', e));
+    }
+
     if (isFirebaseReady() && target) {
       setSyncStatus('sending');
       try {
@@ -760,6 +974,10 @@ export const AppProvider = ({ children }) => {
     const updated = products.filter((p) => p.id !== id);
     setProducts(updated);
     saveState('@store_products', updated);
+
+    if (cloudflareConnected) {
+      deleteProductFromCloudflare(id).catch((e) => console.warn('Cloudflare deleteProduct error:', e));
+    }
 
     if (isFirebaseReady()) {
       setSyncStatus('sending');
@@ -831,7 +1049,7 @@ export const AppProvider = ({ children }) => {
   };
 
   // ==============================================================
-  // CUSTOMERS CRUD
+  // CUSTOMERS CRUD (Supports Description & Notes for improved client files)
   // ==============================================================
   const addCustomer = async (cust) => {
     touchActivity();
@@ -839,12 +1057,18 @@ export const AppProvider = ({ children }) => {
       ...cust,
       id: 'c_' + Date.now().toString(),
       debt: Number(cust.debt || 0),
+      description: (cust.description || '').trim(),
       createdBy: currentUser?.username || 'admin',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     const updated = [newCust, ...customers];
     setCustomers(updated);
     saveState('@store_customers', updated);
+
+    if (cloudflareConnected) {
+      saveCustomerToCloudflare(newCust).catch((e) => console.warn('Cloudflare addCustomer error:', e));
+    }
 
     if (isFirebaseReady()) {
       setSyncStatus('sending');
@@ -865,7 +1089,13 @@ export const AppProvider = ({ children }) => {
     let target = null;
     const updated = customers.map((c) => {
       if (c.id === id) {
-        target = { ...c, ...fields, updatedAt: new Date().toISOString() };
+        target = {
+          ...c,
+          ...fields,
+          description: fields.description !== undefined ? fields.description : (c.description || ''),
+          debt: Number(fields.debt !== undefined ? fields.debt : c.debt || 0),
+          updatedAt: new Date().toISOString(),
+        };
         return target;
       }
       return c;
@@ -873,6 +1103,10 @@ export const AppProvider = ({ children }) => {
 
     setCustomers(updated);
     saveState('@store_customers', updated);
+
+    if (target && cloudflareConnected) {
+      saveCustomerToCloudflare(target).catch((e) => console.warn('Cloudflare updateCustomer error:', e));
+    }
 
     if (isFirebaseReady() && target) {
       setSyncStatus('sending');
@@ -894,6 +1128,10 @@ export const AppProvider = ({ children }) => {
     const updated = customers.filter((c) => c.id !== id);
     setCustomers(updated);
     saveState('@store_customers', updated);
+
+    if (cloudflareConnected) {
+      deleteCustomerFromCloudflare(id).catch((e) => console.warn('Cloudflare deleteCustomer error:', e));
+    }
 
     if (isFirebaseReady()) {
       setSyncStatus('sending');
@@ -938,6 +1176,10 @@ export const AppProvider = ({ children }) => {
       customerId,
       description: `Règlement dette client ${targetCustomer?.name || ''} - Note: ${note || 'Versement'}`,
     });
+
+    if (targetCustomer && cloudflareConnected) {
+      saveCustomerToCloudflare(targetCustomer).catch((e) => console.warn('Cloudflare payment error:', e));
+    }
 
     if (isFirebaseReady() && targetCustomer) {
       setSyncStatus('sending');
@@ -1037,6 +1279,10 @@ export const AppProvider = ({ children }) => {
       description: `Vente #${saleId.slice(-6)} (${saleData.items.length} articles) - Mode: ${saleData.paymentMethod}`,
     });
 
+    if (cloudflareConnected) {
+      saveSaleToCloudflare(newSale).catch((e) => console.warn('Cloudflare saveSale error:', e));
+    }
+
     if (isFirebaseReady()) {
       setSyncStatus('sending');
       try {
@@ -1121,6 +1367,10 @@ export const AppProvider = ({ children }) => {
       description: `Retour vente #${saleId.slice(-6)} - Motif: ${returnReason || 'Retour'}`,
     });
 
+    if (cloudflareConnected && targetSale) {
+      saveSaleToCloudflare(targetSale).catch((e) => console.warn('Cloudflare return error:', e));
+    }
+
     if (isFirebaseReady() && targetSale) {
       try {
         await saveSaleToFirebase(targetSale);
@@ -1150,6 +1400,9 @@ export const AppProvider = ({ children }) => {
     setServices(updated);
     saveState('@store_services', updated);
 
+    if (cloudflareConnected) {
+      saveServiceToCloudflare(newService).catch((e) => console.warn('Cloudflare saveService error:', e));
+    }
     if (isFirebaseReady()) {
       try {
         await saveServiceToFirebase(newService);
@@ -1175,6 +1428,9 @@ export const AppProvider = ({ children }) => {
     setServices(updated);
     saveState('@store_services', updated);
 
+    if (target && cloudflareConnected) {
+      saveServiceToCloudflare(target).catch((e) => console.warn('Cloudflare updateService error:', e));
+    }
     if (isFirebaseReady() && target) {
       try {
         await saveServiceToFirebase(target);
@@ -1191,6 +1447,9 @@ export const AppProvider = ({ children }) => {
     setServices(updated);
     saveState('@store_services', updated);
 
+    if (cloudflareConnected) {
+      deleteServiceFromCloudflare(id).catch((e) => console.warn('Cloudflare deleteService error:', e));
+    }
     if (isFirebaseReady()) {
       try {
         await deleteServiceFromFirebase(id);
@@ -1234,6 +1493,9 @@ export const AppProvider = ({ children }) => {
       });
     }
 
+    if (cloudflareConnected) {
+      saveRepairToCloudflare(newRepair).catch((e) => console.warn('Cloudflare addRepair error:', e));
+    }
     if (isFirebaseReady()) {
       try {
         await saveRepairToFirebase(newRepair);
@@ -1266,6 +1528,9 @@ export const AppProvider = ({ children }) => {
     setRepairs(updated);
     saveState('@store_repairs', updated);
 
+    if (target && cloudflareConnected) {
+      saveRepairToCloudflare(target).catch((e) => console.warn('Cloudflare updateRepair error:', e));
+    }
     if (isFirebaseReady() && target) {
       try {
         await saveRepairToFirebase(target);
@@ -1282,6 +1547,9 @@ export const AppProvider = ({ children }) => {
     setRepairs(updated);
     saveState('@store_repairs', updated);
 
+    if (cloudflareConnected) {
+      deleteRepairFromCloudflare(id).catch((e) => console.warn('Cloudflare deleteRepair error:', e));
+    }
     if (isFirebaseReady()) {
       try {
         await deleteRepairFromFirebase(id);
@@ -1338,6 +1606,10 @@ export const AppProvider = ({ children }) => {
       description: `Dépense: ${newExp.title} (${newExp.category})`,
     });
 
+    if (cloudflareConnected) {
+      saveExpenseToCloudflare(newExp).catch((e) => console.warn('Cloudflare addExpense error:', e));
+    }
+
     if (isFirebaseReady()) {
       setSyncStatus('sending');
       try {
@@ -1366,6 +1638,10 @@ export const AppProvider = ({ children }) => {
     setExpenses(updated);
     saveState('@store_expenses', updated);
 
+    if (target && cloudflareConnected) {
+      saveExpenseToCloudflare(target).catch((e) => console.warn('Cloudflare updateExpense error:', e));
+    }
+
     if (isFirebaseReady() && target) {
       setSyncStatus('sending');
       try {
@@ -1385,6 +1661,10 @@ export const AppProvider = ({ children }) => {
     const updated = expenses.filter((e) => e.id !== id);
     setExpenses(updated);
     saveState('@store_expenses', updated);
+
+    if (cloudflareConnected) {
+      deleteExpenseFromCloudflare(id).catch((e) => console.warn('Cloudflare deleteExpense error:', e));
+    }
 
     if (isFirebaseReady()) {
       setSyncStatus('sending');
@@ -1800,7 +2080,7 @@ export const AppProvider = ({ children }) => {
         openStockModal: () => setStockModalVisible(true),
         closeStockModal: () => setStockModalVisible(false),
 
-        // Firebase Sync
+        // Firebase Sync (User Accounts & Authentication)
         firebaseConfig,
         firebaseConnected,
         firebaseError,
@@ -1814,6 +2094,18 @@ export const AppProvider = ({ children }) => {
         uploadAllDataToCloud,
         downloadAllDataFromCloud,
         testCloudHealth,
+
+        // Cloudflare D1 Database (Products, Sales, Customers, Expenses, Services, Repairs)
+        cloudflareConfig,
+        cloudflareConnected,
+        cloudflareError,
+        cloudflareLastSync,
+        applyCloudflareConfig,
+        uploadAllDataToCloudflare: uploadAllDataToCloudflareHandler,
+        downloadAllDataFromCloudflare: downloadAllDataFromCloudflareHandler,
+        refreshAllFromCloudflare,
+        initCloudflareD1Tables: () => initCloudflareTables(cloudflareConfig),
+        testCloudflareHealth: (cfg) => checkCloudflareHealth(cfg || cloudflareConfig),
       }}
     >
       {children}

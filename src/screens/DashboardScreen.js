@@ -14,6 +14,7 @@ export default function DashboardScreen({ navigation }) {
     sales = [],
     repairs = [],
     services = [],
+    transactions = [],
     isRTL,
     storeInfo,
     openStockModal,
@@ -23,6 +24,8 @@ export default function DashboardScreen({ navigation }) {
     syncStatus,
     lastSyncTime,
     refreshAllFromFirebase,
+    cloudflareConnected,
+    cloudflareError,
   } = useApp();
 
   // Metrics calculation
@@ -31,6 +34,8 @@ export default function DashboardScreen({ navigation }) {
   const validProducts = Array.isArray(products) ? products : [];
   const validCustomers = Array.isArray(customers) ? customers : [];
   const validRepairs = Array.isArray(repairs) ? repairs : [];
+  const validTransactions = Array.isArray(transactions) ? transactions : [];
+  const validExpenses = Array.isArray(expenses) ? expenses : [];
 
   const todaySales = validSales.filter((s) => (s.date || '').startsWith(today));
   const todayRevenue = todaySales.reduce((sum, s) => sum + Number(s.total || 0), 0);
@@ -38,6 +43,25 @@ export default function DashboardScreen({ navigation }) {
   const totalCustomerDebt = validCustomers.reduce((sum, c) => sum + Number(c.debt || 0), 0);
   const lowStockCount = validProducts.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length;
   const pendingRepairsCount = validRepairs.filter((r) => r.status !== 'delivered' && r.status !== 'cancelled').length;
+
+  // Real Money Transactions for Today
+  const todayTransactions = validTransactions.filter((tx) => (tx.date || '').startsWith(today));
+  const todayCashFromSales = todaySales.reduce((sum, s) => {
+    if (s.paymentMethod === 'cash') return sum + Number(s.total || 0);
+    return sum + Number(s.paidAmount || 0);
+  }, 0);
+  const todayDebtPayments = todayTransactions
+    .filter((tx) => tx.type === 'debt_payment')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const todayRepairIncome = todayTransactions
+    .filter((tx) => tx.type === 'repair_payment')
+    .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+  const todayCashIn = todayCashFromSales + todayDebtPayments + todayRepairIncome;
+
+  const todayExpenses = validExpenses
+    .filter((e) => (e.date || '').startsWith(today))
+    .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const todayNetCashFlow = todayCashIn - todayExpenses;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -57,6 +81,49 @@ export default function DashboardScreen({ navigation }) {
           <Ionicons name="settings-outline" size={24} color="#ffffff" />
         </TouchableOpacity>
       </View>
+
+      {/* Hybrid Cloud Status Bar */}
+      <TouchableOpacity
+        style={[styles.hybridStatusBar, isRTL && styles.rowReverse]}
+        onPress={() => navigation.navigate('Settings')}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.hybridPill, isRTL && styles.rowReverse]}>
+          <Ionicons
+            name="logo-firebase"
+            size={14}
+            color={firebaseConnected ? '#10b981' : '#f59e0b'}
+          />
+          <Text style={styles.hybridPillLabel}>Firebase (Auth):</Text>
+          <Text
+            style={[
+              styles.hybridPillVal,
+              { color: firebaseConnected ? '#10b981' : '#f59e0b' },
+            ]}
+          >
+            {firebaseConnected ? (isRTL ? 'متصل' : 'Actif') : (isRTL ? 'محلي' : 'Local')}
+          </Text>
+        </View>
+
+        <View style={styles.hybridDivider} />
+
+        <View style={[styles.hybridPill, isRTL && styles.rowReverse]}>
+          <Ionicons
+            name="cloud-outline"
+            size={14}
+            color={cloudflareConnected ? '#f97316' : '#94a3b8'}
+          />
+          <Text style={styles.hybridPillLabel}>Cloudflare D1:</Text>
+          <Text
+            style={[
+              styles.hybridPillVal,
+              { color: cloudflareConnected ? '#f97316' : '#94a3b8' },
+            ]}
+          >
+            {cloudflareConnected ? (isRTL ? 'متصل' : 'Actif') : (isRTL ? 'غير متصل' : 'Inactif')}
+          </Text>
+        </View>
+      </TouchableOpacity>
 
       {/* Cloud Sync Warning Banner */}
       {!firebaseConnected && firebaseError && (
@@ -110,6 +177,38 @@ export default function DashboardScreen({ navigation }) {
           <Text style={[styles.kpiValue, { color: theme.colors.secondary }]}>{formatMoney(todayProfit)}</Text>
           <Text style={styles.kpiSubtitle}>{isRTL ? 'صافي هامش الربح' : 'Marge nette estimée'}</Text>
         </View>
+
+        {/* Today's Real Cash Inflow */}
+        <TouchableOpacity
+          style={[styles.kpiCard, { borderLeftColor: '#059669' }]}
+          onPress={() => navigation.navigate('Reports')}
+        >
+          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
+            <Text style={styles.kpiTitle}>{t('cashInflow') || 'Encaissements Réels'}</Text>
+            <View style={[styles.kpiIconWrapper, { backgroundColor: '#d1fae5' }]}>
+              <Ionicons name="cash" size={20} color="#059669" />
+            </View>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#059669' }]}>{formatMoney(todayCashIn)}</Text>
+          <Text style={styles.kpiSubtitle}>{isRTL ? 'مقبوضات نقدية فعلية' : "Espèces reçues aujourd'hui"}</Text>
+        </TouchableOpacity>
+
+        {/* Today's Net Cash Flow */}
+        <TouchableOpacity
+          style={[styles.kpiCard, { borderLeftColor: todayNetCashFlow >= 0 ? '#0284c7' : theme.colors.danger }]}
+          onPress={() => navigation.navigate('Reports')}
+        >
+          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
+            <Text style={styles.kpiTitle}>{t('netCashFlow') || 'Trésorerie Nette'}</Text>
+            <View style={[styles.kpiIconWrapper, { backgroundColor: '#e0f2fe' }]}>
+              <Ionicons name="swap-vertical" size={20} color="#0284c7" />
+            </View>
+          </View>
+          <Text style={[styles.kpiValue, { color: todayNetCashFlow >= 0 ? '#0284c7' : theme.colors.danger }]}>
+            {formatMoney(todayNetCashFlow)}
+          </Text>
+          <Text style={styles.kpiSubtitle}>{isRTL ? 'صافي السيولة النقدية' : 'Entrées - Sorties du jour'}</Text>
+        </TouchableOpacity>
 
         {/* Customer Debts */}
         <TouchableOpacity 
@@ -290,6 +389,38 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
+  },
+  hybridStatusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: theme.colors.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    marginBottom: theme.spacing.md,
+  },
+  hybridPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  hybridPillLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
+    marginLeft: 6,
+    marginRight: 4,
+  },
+  hybridPillVal: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  hybridDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: theme.colors.border,
   },
   syncWarningBanner: {
     flexDirection: 'row',

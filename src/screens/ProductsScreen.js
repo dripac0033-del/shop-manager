@@ -14,6 +14,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import CameraBarcodeScannerModal from '../components/CameraBarcodeScannerModal';
 
 export default function ProductsScreen() {
   const {
@@ -136,6 +137,44 @@ export default function ProductsScreen() {
     } catch (err) {
       console.warn('Error saving product:', err);
     }
+  };
+
+  const handleBarcodeScanned = (scannedCode) => {
+    const code = String(scannedCode || '').trim();
+    if (!code) return;
+
+    if (modalVisible) {
+      // Adding or editing product: populate barcode
+      setBarcode(code);
+      const existing = validProducts.find((p) => String(p.barcode || '').trim() === code);
+      if (existing && (!editingProduct || editingProduct.id !== existing.id)) {
+        showToast(
+          isRTL
+            ? `⚠️ الباركود مسجل مسبقاً: ${existing.nameAr || existing.nameFr}`
+            : `⚠️ Code déjà utilisé pour: ${existing.nameFr}`
+        );
+      } else {
+        showToast(isRTL ? `✅ تم مسح الكود: ${code}` : `✅ Code-barres scanné : ${code}`);
+      }
+    } else {
+      // Search or filter products by scanned barcode
+      setSearchQuery(code);
+      const matched = validProducts.find((p) => String(p.barcode || '').trim() === code);
+      if (matched) {
+        showToast(
+          isRTL
+            ? `✅ تم العثور على: ${matched.nameAr || matched.nameFr} (${matched.stock} قطعة)`
+            : `✅ Trouvé : ${matched.nameFr} (${matched.stock} en stock)`
+        );
+      } else {
+        showToast(
+          isRTL
+            ? `❌ الباركود [${code}] غير موجود بالمخزون`
+            : `❌ Aucun produit avec le code [${code}]`
+        );
+      }
+    }
+    setScannerModalVisible(false);
   };
 
   const handleDelete = (id) => {
@@ -839,62 +878,15 @@ export default function ProductsScreen() {
         </View>
       </Modal>
 
-      {/* Barcode Scanner Modal */}
-      <Modal visible={scannerModalVisible} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.scanHelperCard}>
-            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
-              <Text style={styles.modalTitle}>{isRTL ? 'مسح الباركود' : 'Scanner Code-barres'}</Text>
-              <TouchableOpacity onPress={() => setScannerModalVisible(false)}>
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.scanViewfinder}>
-              <Ionicons name="scan-outline" size={64} color="#22c55e" />
-              <Text style={styles.scanViewfinderText}>
-                {isRTL ? 'اكتب أو امسح الباركود باستخدام القارئ' : 'Scannez au lecteur ou entrez le code ci-dessous'}
-              </Text>
-            </View>
-
-            <TextInput
-              style={[styles.inputBox, { marginTop: 14 }, isRTL && styles.textRight]}
-              placeholder="Ex: 613123456789"
-              value={scannedCodeInput}
-              onChangeText={setScannedCodeInput}
-              autoFocus
-              onSubmitEditing={() => {
-                if (scannedCodeInput.trim()) {
-                  if (modalVisible) {
-                    setBarcode(scannedCodeInput.trim());
-                  } else {
-                    setSearchQuery(scannedCodeInput.trim());
-                  }
-                  setScannedCodeInput('');
-                  setScannerModalVisible(false);
-                }
-              }}
-            />
-
-            <TouchableOpacity
-              style={styles.saveBtn}
-              onPress={() => {
-                if (scannedCodeInput.trim()) {
-                  if (modalVisible) {
-                    setBarcode(scannedCodeInput.trim());
-                  } else {
-                    setSearchQuery(scannedCodeInput.trim());
-                  }
-                  setScannedCodeInput('');
-                  setScannerModalVisible(false);
-                }
-              }}
-            >
-              <Text style={styles.saveBtnText}>{isRTL ? 'تأكيد' : 'Valider'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Real Camera Barcode Scanner Modal */}
+      <CameraBarcodeScannerModal
+        visible={scannerModalVisible}
+        onClose={() => setScannerModalVisible(false)}
+        onScan={handleBarcodeScanned}
+        title={isRTL ? 'ماسح الكاميرا للمنتجات' : 'Scanner Caméra Produits'}
+        continuous={false}
+        isRTL={isRTL}
+      />
     </View>
   );
 }

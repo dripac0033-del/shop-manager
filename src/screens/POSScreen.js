@@ -15,6 +15,9 @@ import {
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
+import CameraBarcodeScannerModal from '../components/CameraBarcodeScannerModal';
+import ProfessionalReceiptModal from '../components/ProfessionalReceiptModal';
+import { printReceiptDirectly } from '../services/receiptPrinter';
 
 export default function POSScreen() {
   const {
@@ -217,6 +220,7 @@ export default function POSScreen() {
     try {
       const { sale, lowStockWarnings } = await completeSale(payload);
       setLastCompletedSale(sale);
+      setReceiptModalVisible(true);
 
       clearCart();
       setPaidAmountInput('');
@@ -787,104 +791,28 @@ export default function POSScreen() {
         </View>
       </Modal>
 
-      {/* Barcode Scanner Modal */}
-      <Modal visible={scannerModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.scannerModalCard}>
-            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="scan" size={22} color={theme.colors.primary} style={{ marginRight: 8 }} />
-                <Text style={styles.modalTitle}>
-                  {isRTL ? 'ماسح الباركود' : 'Scanner Code-barres'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setScannerModalVisible(false)}>
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
+      {/* Real Camera Barcode Scanner Modal (Continuous & Fast) */}
+      <CameraBarcodeScannerModal
+        visible={scannerModalVisible}
+        onClose={() => setScannerModalVisible(false)}
+        onScan={(code) => handleBarcodeScan(code)}
+        title={isRTL ? 'ماسح الكاميرا السريع' : 'Scanner Caméra Ventes'}
+        continuous={true}
+        feedback={scanFeedback}
+        isRTL={isRTL}
+      />
 
-            <ScrollView style={{ maxHeight: 420 }}>
-              <View style={styles.viewfinderFrame}>
-                <Ionicons name="barcode-outline" size={64} color="#22c55e" />
-                <Text style={styles.viewfinderHelp}>
-                  {isRTL
-                    ? 'امسح بالباركود أو اكتب الكود للإضافة السريعة'
-                    : 'Scannez un article ou tapez le code pour ajouter au panier'}
-                </Text>
-              </View>
-
-              <View style={[styles.scannerInputRow, isRTL && styles.rowReverse]}>
-                <TextInput
-                  style={[styles.scannerModalInput, isRTL && styles.textRight]}
-                  placeholder={isRTL ? 'اكتب كود بار هنا...' : 'Saisir un code-barres...'}
-                  value={barcodeInput}
-                  onChangeText={setBarcodeInput}
-                  onSubmitEditing={() => {
-                    handleBarcodeScan();
-                    setScannerModalVisible(false);
-                  }}
-                  autoFocus
-                />
-                <TouchableOpacity
-                  style={styles.scannerModalValidateBtn}
-                  onPress={() => {
-                    handleBarcodeScan();
-                    setScannerModalVisible(false);
-                  }}
-                >
-                  <Text style={styles.scannerModalValidateBtnText}>
-                    {isRTL ? 'إضافة' : 'Ajouter'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Optional Receipt Viewer Modal */}
-      <Modal visible={receiptModalVisible} animationType="fade" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
-              <Text style={styles.modalTitle}>{t('receipt')}</Text>
-              <TouchableOpacity onPress={() => setReceiptModalVisible(false)}>
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            {lastCompletedSale && (
-              <ScrollView style={{ maxHeight: 380 }}>
-                <View style={styles.receiptPaper}>
-                  <Text style={styles.receiptPaperText}>
-                    {generateReceiptText(lastCompletedSale)}
-                  </Text>
-                </View>
-
-                <View style={styles.receiptModalActions}>
-                  <TouchableOpacity
-                    style={styles.receiptWhatsAppBtn}
-                    onPress={() => handleSendWhatsApp(lastCompletedSale)}
-                  >
-                    <Ionicons name="logo-whatsapp" size={18} color="#ffffff" />
-                    <Text style={styles.receiptActionText}>WhatsApp</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.receiptCopyBtn}
-                    onPress={() => handleCopyReceipt(lastCompletedSale)}
-                  >
-                    <Ionicons name="copy-outline" size={18} color={theme.colors.text} />
-                    <Text style={styles.receiptCopyText}>
-                      {copyFeedback ? (isRTL ? 'تم النسخ' : 'Copié') : (isRTL ? 'نسخ' : 'Copier')}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+      {/* Professional Thermal Receipt Modal */}
+      <ProfessionalReceiptModal
+        visible={receiptModalVisible}
+        onClose={() => setReceiptModalVisible(false)}
+        sale={lastCompletedSale}
+        storeInfo={storeInfo}
+        customers={customers}
+        currency={useApp().currency || 'DA'}
+        isRTL={isRTL}
+        t={t}
+      />
     </View>
   );
 }
