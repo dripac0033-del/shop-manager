@@ -26,6 +26,7 @@ export default function DashboardScreen({ navigation }) {
     refreshAllFromFirebase,
     cloudflareConnected,
     cloudflareError,
+    iptvCodes = [],
   } = useApp();
 
   // Metrics calculation
@@ -43,6 +44,15 @@ export default function DashboardScreen({ navigation }) {
   const totalCustomerDebt = validCustomers.reduce((sum, c) => sum + Number(c.debt || 0), 0);
   const lowStockCount = validProducts.filter((p) => Number(p.stock || 0) <= Number(p.minStock || 5)).length;
   const pendingRepairsCount = validRepairs.filter((r) => r.status !== 'delivered' && r.status !== 'cancelled').length;
+
+  // IPTV metrics
+  const availableIptvCount = (iptvCodes || []).filter((c) => c.status === 'in_stock').length;
+  const nowTime = new Date();
+  const sevenDaysAhead = new Date(nowTime.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const expiringIptvCount = (iptvCodes || []).filter((c) => {
+    const exp = c.expirationDate ? new Date(c.expirationDate) : null;
+    return exp && exp >= nowTime && exp <= sevenDaysAhead;
+  }).length;
 
   // Real Money Transactions for Today
   const todayTransactions = validTransactions.filter((tx) => (tx.date || '').startsWith(today));
@@ -269,6 +279,23 @@ export default function DashboardScreen({ navigation }) {
           <Text style={[styles.kpiValue, { color: '#0284c7' }]}>{validProducts.length + services.length}</Text>
           <Text style={styles.kpiSubtitle}>{validProducts.length} {isRTL ? 'منتج' : 'produits'} + {services.length} {isRTL ? 'خدمات' : 'services'}</Text>
         </TouchableOpacity>
+
+        {/* IPTV & Servers Stock */}
+        <TouchableOpacity 
+          style={[styles.kpiCard, { borderLeftColor: '#8b5cf6' }]}
+          onPress={() => navigation.navigate('IPTV')}
+        >
+          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
+            <Text style={styles.kpiTitle}>{isRTL ? 'مخزون IPTV والسيرفرات' : 'Stock IPTV & Serveurs'}</Text>
+            <View style={[styles.kpiIconWrapper, { backgroundColor: '#f3e8ff' }]}>
+              <Ionicons name="tv" size={20} color="#8b5cf6" />
+            </View>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#8b5cf6' }]}>{availableIptvCount} {isRTL ? 'أكواد متاحة' : 'disponibles'}</Text>
+          <Text style={styles.kpiSubtitle}>
+            {expiringIptvCount > 0 ? (isRTL ? `⚠️ ${expiringIptvCount} تنتهي قريباً` : `⚠️ ${expiringIptvCount} expirent sous 7j`) : `${(iptvCodes || []).length} ${isRTL ? 'إجمالي الأكواد' : 'codes au total'}`}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Quick Action Buttons */}
@@ -280,6 +307,14 @@ export default function DashboardScreen({ navigation }) {
         >
           <Ionicons name="barcode" size={26} color="#ffffff" />
           <Text style={styles.actionBtnText}>{t('newSale')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.actionBtn, { backgroundColor: '#8b5cf6' }]}
+          onPress={() => navigation.navigate('IPTV')}
+        >
+          <Ionicons name="tv-outline" size={26} color="#ffffff" />
+          <Text style={styles.actionBtnText}>IPTV</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 

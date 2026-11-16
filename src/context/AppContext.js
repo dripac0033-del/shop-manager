@@ -55,6 +55,19 @@ import {
   saveStoreInfoToFirebase,
   fetchStoreInfoFromFirebase,
   subscribeToFirebaseStoreInfo,
+  // Cloudflare Config on Firebase
+  saveCloudflareConfigToFirebase,
+  fetchCloudflareConfigFromFirebase,
+  subscribeToCloudflareConfigFromFirebase,
+  // Multi-Databases on Firebase
+  saveDatabasesListToFirebase,
+  fetchDatabasesListFromFirebase,
+  subscribeToDatabasesListFromFirebase,
+  // IPTV Codes on Firebase
+  saveIptvCodeToFirebase,
+  deleteIptvCodeFromFirebase,
+  fetchIptvCodesFromFirebase,
+  subscribeToFirebaseIptvCodes,
   // Helpers & Full Sync
   checkFirestoreHealth,
   uploadAllDataToFirebase,
@@ -68,6 +81,8 @@ import {
   saveCloudflareConfig,
   checkCloudflareHealth,
   initCloudflareTables,
+  getStoredDatabasesList,
+  saveStoredDatabasesList,
   // Products
   saveProductToCloudflare,
   deleteProductFromCloudflare,
@@ -98,6 +113,10 @@ import {
   saveExpenseToCloudflare,
   deleteExpenseFromCloudflare,
   fetchExpensesFromCloudflare,
+  // IPTV Codes on Cloudflare D1
+  saveIptvCodeToCloudflare,
+  deleteIptvCodeFromCloudflare,
+  fetchIptvCodesFromCloudflare,
   // Store Info
   saveStoreInfoToCloudflare,
   fetchStoreInfoFromCloudflare,
@@ -105,6 +124,7 @@ import {
   uploadAllDataToCloudflare,
   fetchAllDataFromCloudflare,
   DEFAULT_CLOUDFLARE_CONFIG,
+  DEFAULT_DATABASE_PROFILE,
 } from '../services/cloudflare';
 
 const AppContext = createContext();
@@ -177,6 +197,23 @@ export const AppProvider = ({ children }) => {
   const [cloudflareConnected, setCloudflareConnected] = useState(false);
   const [cloudflareError, setCloudflareError] = useState(null);
   const [cloudflareLastSync, setCloudflareLastSync] = useState(null);
+  const [cloudflareLatency, setCloudflareLatency] = useState(null);
+
+  // Multi-Databases State
+  const [databasesList, setDatabasesList] = useState([]);
+  const [activeDatabaseId, setActiveDatabaseId] = useState('default');
+
+  // IPTV & Server Subscriptions Stock State
+  const [iptvCodes, setIptvCodes] = useState([]);
+
+  // Auto-Sync Metrics State (Tracks data sent & received in real-time)
+  const [syncMetrics, setSyncMetrics] = useState({
+    itemsSent: 0,
+    itemsReceived: 0,
+    lastSyncTime: null,
+    isSyncing: false,
+    error: null,
+  });
 
   const isLocalUpdateRef = useRef(false);
   const lastActivityRef = useRef(Date.now());
@@ -320,6 +357,26 @@ export const AppProvider = ({ children }) => {
           } catch (e) {}
         }
 
+        // Hydrate local IPTV codes
+        const storedIptv = await AsyncStorage.getItem('@store_iptv_codes');
+        if (storedIptv) {
+          try {
+            const iptvParsed = JSON.parse(storedIptv);
+            if (Array.isArray(iptvParsed)) setIptvCodes(iptvParsed);
+          } catch (e) {}
+        }
+
+        // Hydrate Multi-Databases List
+        try {
+          const dbsData = await getStoredDatabasesList();
+          if (dbsData && Array.isArray(dbsData.databases)) {
+            setDatabasesList(dbsData.databases);
+            setActiveDatabaseId(dbsData.activeDatabaseId || 'default');
+          }
+        } catch (dbsErr) {
+          console.warn('Could not load databases list:', dbsErr);
+        }
+
         // Initialize Firebase (User Accounts & Auth)
         const storedFbConf = await getStoredFirebaseConfig();
         const activeConfig = storedFbConf && storedFbConf.apiKey ? storedFbConf : DEFAULT_FIREBASE_CONFIG;
@@ -346,8 +403,9 @@ export const AppProvider = ({ children }) => {
           setSyncStatus('offline');
         }
 
-        // Initialize Cloudflare D1 (High Capacity Database for Products, Sales, Customers, Expenses)
+        // Initialize Cloudflare D1 (High Capacity Database for Products, Sales, IPTV, Customers, Expenses)
         try {
+          // Loads from Firebase Firestore first, fallback to AsyncStorage
           const storedCfConf = await getStoredCloudflareConfig();
           setCloudflareConfigState(storedCfConf);
           if (storedCfConf.accountId || storedCfConf.workerUrl) {
@@ -355,25 +413,45 @@ export const AppProvider = ({ children }) => {
             if (cfHealth.success) {
               setCloudflareConnected(true);
               setCloudflareError(null);
+              setCloudflareLatency(cfHealth.latencyMs || null);
+
+              // Auto-initialize tables in D1 (guarantees iptv_codes and other tables exist)
+              await initCloudflareTables(storedCfConf).catch(() => {});
+
               // Fetch latest products and business data from Cloudflare
               const cfData = await fetchAllDataFromCloudflare();
+              let receivedCount = 0;
               if (Array.isArray(cfData.products) && cfData.products.length > 0) {
                 setProducts(cfData.products);
                 saveState('@store_products', cfData.products);
+                receivedCount += cfData.products.length;
               }
               if (Array.isArray(cfData.customers) && cfData.customers.length > 0) {
                 setCustomers(cfData.customers);
                 saveState('@store_customers', cfData.customers);
+                receivedCount += cfData.customers.length;
               }
               if (Array.isArray(cfData.sales) && cfData.sales.length > 0) {
                 setSales(cfData.sales);
                 saveState('@store_sales', cfData.sales);
+                receivedCount += cfData.sales.length;
               }
               if (Array.isArray(cfData.expenses) && cfData.expenses.length > 0) {
                 setExpenses(cfData.expenses);
                 saveState('@store_expenses', cfData.expenses);
+                receivedCount += cfData.expenses.length;
+              }
+              if (Array.isArray(cfData.iptvCodes) && cfData.iptvCodes.length > 0) {
+                setIptvCodes(cfData.iptvCodes);
+                saveState('@store_iptv_codes', cfData.iptvCodes);
+                receivedCount += cfData.iptvCodes.length;
               }
               setCloudflareLastSync(new Date().toLocaleTimeString());
+              setSyncMetrics((m) => ({
+                ...m,
+                itemsReceived: (m.itemsReceived || 0) + receivedCount,
+                lastSyncTime: new Date().toLocaleTimeString(),
+              }));
             } else {
               setCloudflareConnected(false);
               setCloudflareError(cfHealth.error);
@@ -540,6 +618,11 @@ export const AppProvider = ({ children }) => {
         setExpenses(cfData.expenses);
         saveState('@store_expenses', cfData.expenses);
       }
+      if (Array.isArray(cfData.iptvCodes) && cfData.iptvCodes.length > 0) {
+        setIptvCodes(cfData.iptvCodes);
+        saveState('@store_iptv_codes', cfData.iptvCodes);
+        totalCount += cfData.iptvCodes.length;
+      }
       if (cfData.storeInfo && typeof cfData.storeInfo === 'object') {
         setStoreInfo(cfData.storeInfo);
         saveState('@store_info', cfData.storeInfo);
@@ -548,6 +631,11 @@ export const AppProvider = ({ children }) => {
       setCloudflareConnected(true);
       setCloudflareError(null);
       setCloudflareLastSync(new Date().toLocaleTimeString());
+      setSyncMetrics((m) => ({
+        ...m,
+        itemsReceived: (m.itemsReceived || 0) + totalCount,
+        lastSyncTime: new Date().toLocaleTimeString(),
+      }));
       setSyncStatus('connected');
       return { success: true, count: totalCount };
     } catch (err) {
@@ -567,12 +655,14 @@ export const AppProvider = ({ children }) => {
       if (health.success) {
         setCloudflareConnected(true);
         setCloudflareError(null);
+        setCloudflareLatency(health.latencyMs || null);
         await initCloudflareTables(saved).catch(() => {});
-        return { success: true };
+        await refreshAllFromCloudflare().catch(() => {});
+        return { success: true, mode: health.mode, latencyMs: health.latencyMs };
       } else {
         setCloudflareConnected(false);
         setCloudflareError(health.error);
-        return { success: false, error: health.error };
+        return { success: false, error: health.error, status: health.status };
       }
     } catch (err) {
       setCloudflareConnected(false);
@@ -593,6 +683,7 @@ export const AppProvider = ({ children }) => {
         services,
         repairs,
         expenses,
+        iptvCodes,
         storeInfo,
       });
       setCloudflareConnected(true);
@@ -626,6 +717,9 @@ export const AppProvider = ({ children }) => {
     let unsubExpenses = () => {};
     let unsubUsers = () => {};
     let unsubStoreInfo = () => {};
+    let unsubCloudflareConfig = () => {};
+    let unsubDatabasesList = () => {};
+    let unsubIptv = () => {};
 
     const handleSubError = (err) => {
       console.warn('Real-time listener error:', err);
@@ -722,6 +816,55 @@ export const AppProvider = ({ children }) => {
           saveState('@store_info', cloud);
         }
       });
+
+      // Synchronize Cloudflare settings in real-time from Firebase Firestore
+      unsubCloudflareConfig = subscribeToCloudflareConfigFromFirebase((remoteCf) => {
+        if (remoteCf && (remoteCf.accountId || remoteCf.workerUrl || remoteCf.databaseId)) {
+          setCloudflareConfigState((prev) => {
+            if (
+              prev.accountId !== remoteCf.accountId ||
+              prev.databaseId !== remoteCf.databaseId ||
+              prev.apiToken !== remoteCf.apiToken ||
+              prev.workerUrl !== remoteCf.workerUrl
+            ) {
+              checkCloudflareHealth(remoteCf).then((h) => {
+                if (h.success) {
+                  setCloudflareConnected(true);
+                  setCloudflareError(null);
+                  setCloudflareLatency(h.latencyMs || null);
+                  refreshAllFromCloudflare().catch(() => {});
+                }
+              });
+              return {
+                accountId: remoteCf.accountId || '',
+                databaseId: remoteCf.databaseId || '',
+                apiToken: remoteCf.apiToken || '',
+                workerUrl: remoteCf.workerUrl || '',
+              };
+            }
+            return prev;
+          });
+        }
+      });
+
+      // Synchronize Multi-Databases List in real-time from Firebase Firestore
+      unsubDatabasesList = subscribeToDatabasesListFromFirebase((remoteDbs) => {
+        if (remoteDbs && Array.isArray(remoteDbs.databases)) {
+          setDatabasesList(remoteDbs.databases);
+          if (remoteDbs.activeDatabaseId) {
+            setActiveDatabaseId(remoteDbs.activeDatabaseId);
+          }
+        }
+      });
+
+      // Synchronize IPTV Codes in real-time from Firebase Firestore
+      unsubIptv = subscribeToFirebaseIptvCodes((remoteCodes) => {
+        if (isLocalUpdateRef.current) return;
+        if (Array.isArray(remoteCodes)) {
+          setIptvCodes(remoteCodes);
+          saveState('@store_iptv_codes', remoteCodes);
+        }
+      }, handleSubError);
     } catch (e) {
       console.warn('Real-time sync subscription error:', e);
     }
@@ -737,8 +880,47 @@ export const AppProvider = ({ children }) => {
       unsubExpenses();
       unsubUsers();
       unsubStoreInfo();
+      unsubCloudflareConfig();
+      unsubDatabasesList();
+      unsubIptv();
     };
   }, [firebaseConnected]);
+
+  // Automatic Background Periodic Auto-Sync Watchdog (every 35 seconds)
+  useEffect(() => {
+    if (!isReady) return;
+
+    const interval = setInterval(async () => {
+      if (cloudflareConnected) {
+        try {
+          const cfData = await fetchAllDataFromCloudflare().catch(() => null);
+          if (cfData) {
+            let count = 0;
+            if (Array.isArray(cfData.products) && cfData.products.length > 0) {
+              setProducts(cfData.products);
+              count += cfData.products.length;
+            }
+            if (Array.isArray(cfData.sales) && cfData.sales.length > 0) {
+              setSales(cfData.sales);
+              count += cfData.sales.length;
+            }
+            if (Array.isArray(cfData.iptvCodes) && cfData.iptvCodes.length > 0) {
+              setIptvCodes(cfData.iptvCodes);
+              count += cfData.iptvCodes.length;
+            }
+            setCloudflareLastSync(new Date().toLocaleTimeString());
+            setSyncMetrics((m) => ({
+              ...m,
+              itemsReceived: (m.itemsReceived || 0) + count,
+              lastSyncTime: new Date().toLocaleTimeString(),
+            }));
+          }
+        } catch (e) {}
+      }
+    }, 35000);
+
+    return () => clearInterval(interval);
+  }, [isReady, cloudflareConnected]);
 
   // ==============================================================
   // AUTHENTICATION & USERS (Dedicated Collection `users`)
@@ -1742,6 +1924,402 @@ export const AppProvider = ({ children }) => {
     saveState('@session_timeout', String(mins));
   };
 
+  // ==============================================================
+  // IPTV & SERVER CODES MANAGEMENT (High Volume Stock on Cloudflare D1)
+  // ==============================================================
+
+  const addIptvCode = async (item) => {
+    touchActivity();
+    const duration = Number(item.durationMonths || 12);
+    let expDate = item.expirationDate;
+    if (!expDate) {
+      const d = new Date();
+      d.setMonth(d.getMonth() + duration);
+      expDate = d.toISOString();
+    }
+
+    const newItem = {
+      ...item,
+      id: item.id || `iptv_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      code: (item.code || '').trim(),
+      serverName: (item.serverName || 'Serveur IPTV').trim(),
+      serviceType: item.serviceType || 'code',
+      host: (item.host || '').trim(),
+      port: String(item.port || '').trim(),
+      username: (item.username || '').trim(),
+      password: (item.password || '').trim(),
+      macAddress: (item.macAddress || '').trim(),
+      m3uUrl: (item.m3uUrl || '').trim(),
+      durationMonths: duration,
+      purchaseDate: item.purchaseDate || new Date().toISOString(),
+      activationDate: item.activationDate || null,
+      expirationDate: expDate,
+      buyPrice: Number(item.buyPrice || 0),
+      sellPrice: Number(item.sellPrice || 0),
+      status: item.status || 'in_stock',
+      customerId: item.customerId || '',
+      customerName: item.customerName || '',
+      customerPhone: item.customerPhone || '',
+      supplierSite: item.supplierSite || '',
+      notes: item.notes || '',
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updated = [newItem, ...iptvCodes];
+    setIptvCodes(updated);
+    saveState('@store_iptv_codes', updated);
+
+    // Save to Cloudflare D1 (Stock Data)
+    if (cloudflareConnected) {
+      saveIptvCodeToCloudflare(newItem).catch((e) => console.warn('Cloudflare saveIptvCode error:', e));
+    }
+
+    // Also mirror to Firebase
+    if (isFirebaseReady()) {
+      saveIptvCodeToFirebase(newItem).catch((e) => console.warn('Firebase saveIptvCode error:', e));
+    }
+
+    setSyncMetrics((m) => ({
+      ...m,
+      itemsSent: (m.itemsSent || 0) + 1,
+      lastSyncTime: new Date().toLocaleTimeString(),
+    }));
+
+    return newItem;
+  };
+
+  const updateIptvCode = async (id, fields) => {
+    touchActivity();
+    let target = null;
+    const updated = iptvCodes.map((item) => {
+      if (item.id === id) {
+        target = {
+          ...item,
+          ...fields,
+          buyPrice: fields.buyPrice !== undefined ? Number(fields.buyPrice) : item.buyPrice,
+          sellPrice: fields.sellPrice !== undefined ? Number(fields.sellPrice) : item.sellPrice,
+          updatedAt: new Date().toISOString(),
+        };
+        return target;
+      }
+      return item;
+    });
+
+    setIptvCodes(updated);
+    saveState('@store_iptv_codes', updated);
+
+    if (target && cloudflareConnected) {
+      saveIptvCodeToCloudflare(target).catch((e) => console.warn('Cloudflare updateIptvCode error:', e));
+    }
+
+    if (target && isFirebaseReady()) {
+      saveIptvCodeToFirebase(target).catch((e) => console.warn('Firebase updateIptvCode error:', e));
+    }
+
+    setSyncMetrics((m) => ({
+      ...m,
+      itemsSent: (m.itemsSent || 0) + 1,
+      lastSyncTime: new Date().toLocaleTimeString(),
+    }));
+
+    return target;
+  };
+
+  const deleteIptvCode = async (id) => {
+    touchActivity();
+    const updated = iptvCodes.filter((item) => item.id !== id);
+    setIptvCodes(updated);
+    saveState('@store_iptv_codes', updated);
+
+    if (cloudflareConnected) {
+      deleteIptvCodeFromCloudflare(id).catch((e) => console.warn('Cloudflare deleteIptvCode error:', e));
+    }
+
+    if (isFirebaseReady()) {
+      deleteIptvCodeFromFirebase(id).catch((e) => console.warn('Firebase deleteIptvCode error:', e));
+    }
+
+    return true;
+  };
+
+  // Assign an IPTV code to a customer, create a sale ticket & WhatsApp details
+  const assignIptvCodeToCustomer = async (codeId, customerId, sellPriceInput, durationMonthsInput) => {
+    touchActivity();
+    const targetCode = iptvCodes.find((c) => c.id === codeId);
+    if (!targetCode) throw new Error('Code IPTV introuvable.');
+
+    const targetCustomer = customers.find((c) => c.id === customerId);
+    const sellPrice = Number(sellPriceInput !== undefined ? sellPriceInput : (targetCode.sellPrice || 0));
+    const duration = Number(durationMonthsInput || targetCode.durationMonths || 12);
+
+    const now = new Date();
+    const expDate = new Date(now);
+    expDate.setMonth(expDate.getMonth() + duration);
+
+    // Update IPTV Code status to sold
+    const updatedCode = await updateIptvCode(codeId, {
+      status: 'sold',
+      customerId: targetCustomer ? targetCustomer.id : '',
+      customerName: targetCustomer ? targetCustomer.name : 'Client Comptoir',
+      customerPhone: targetCustomer ? targetCustomer.phone : '',
+      sellPrice,
+      durationMonths: duration,
+      activationDate: now.toISOString(),
+      expirationDate: expDate.toISOString(),
+    });
+
+    // Record sale in POS & ledger
+    const saleItem = {
+      id: targetCode.id,
+      nameFr: `Abonnement IPTV: ${targetCode.serverName} (${duration} Mois)`,
+      nameAr: `اشتراك IPTV: ${targetCode.serverName} (${duration} أشهر)`,
+      category: 'IPTV',
+      price: sellPrice,
+      buyPrice: Number(targetCode.buyPrice || 0),
+      qty: 1,
+      total: sellPrice,
+    };
+
+    await completeSale({
+      items: [saleItem],
+      total: sellPrice,
+      subtotal: sellPrice,
+      discount: 0,
+      paymentMethod: targetCustomer ? 'cash' : 'cash',
+      paidAmount: sellPrice,
+      customerId: targetCustomer ? targetCustomer.id : null,
+      cashier: currentUser?.username || 'admin',
+      cashierName: currentUser?.name || 'Admin',
+    }).catch((err) => console.warn('Could not register sale for IPTV:', err));
+
+    return updatedCode;
+  };
+
+  // Smart parser to extract Xtream / PIN / M3U from raw copied text
+  const parseAndImportIptvText = (rawText, defaultServer = 'Serveur IPTV') => {
+    if (!rawText || typeof rawText !== 'string') return null;
+    const clean = rawText.trim();
+
+    let serviceType = 'code';
+    let host = '';
+    let port = '';
+    let username = '';
+    let password = '';
+    let code = '';
+    let m3uUrl = '';
+    let macAddress = '';
+    let serverName = defaultServer;
+    let durationMonths = 12;
+
+    // Detect MAC Address
+    const macMatch = clean.match(/(?:[0-9A-Fa-f]{2}[:-]){5}(?:[0-9A-Fa-f]{2})/);
+    if (macMatch) {
+      macAddress = macMatch[0].toUpperCase();
+      serviceType = 'portal';
+    }
+
+    // Detect URL with Xtream parameters
+    const urlMatch = clean.match(/https?:\/\/[^\s"'<>]+/i);
+    if (urlMatch) {
+      const rawUrl = urlMatch[0];
+      try {
+        const u = new URL(rawUrl);
+        host = `${u.protocol}//${u.hostname}`;
+        port = u.port || (u.protocol === 'https:' ? '443' : '80');
+        const uUser = u.searchParams.get('username') || u.searchParams.get('user');
+        const uPass = u.searchParams.get('password') || u.searchParams.get('pass');
+        if (uUser && uPass) {
+          username = uUser;
+          password = uPass;
+          serviceType = 'xtream';
+        }
+        if (rawUrl.includes('.m3u')) {
+          m3uUrl = rawUrl;
+          if (!username) serviceType = 'm3u';
+        }
+      } catch (e) {}
+    }
+
+    // Detect key-value patterns (Host, User, Pass, Server)
+    const hostMatch = clean.match(/(?:host|server|url|dns)\s*[:=]\s*(https?:\/\/[^\s\n\r]+|[^\s\n\r:]+:\d+)/i);
+    if (hostMatch && !host) host = hostMatch[1].trim();
+
+    const userMatch = clean.match(/(?:user|username|identifiant|compte)\s*[:=]\s*([^\s\n\r|;,]+)/i);
+    if (userMatch) {
+      username = userMatch[1].trim();
+      serviceType = 'xtream';
+    }
+
+    const passMatch = clean.match(/(?:pass|password|mdp|cle)\s*[:=]\s*([^\s\n\r|;,]+)/i);
+    if (passMatch) {
+      password = passMatch[1].trim();
+      serviceType = 'xtream';
+    }
+
+    const serverMatch = clean.match(/(?:serveur|server|nom|panel)\s*[:=]\s*([^\n\r|;,]+)/i);
+    if (serverMatch) serverName = serverMatch[1].trim();
+
+    // Detect Duration
+    if (/(\b1\s*an\b|\b12\s*m|\b12\s*mois\b|\b1\s*year\b)/i.test(clean)) durationMonths = 12;
+    else if (/(\b6\s*m|\b6\s*mois\b|\b6\s*months\b)/i.test(clean)) durationMonths = 6;
+    else if (/(\b3\s*m|\b3\s*mois\b|\b3\s*months\b)/i.test(clean)) durationMonths = 3;
+    else if (/(\b1\s*m|\b1\s*mois\b|\b1\s*month\b)/i.test(clean)) durationMonths = 1;
+
+    // Detect PIN / Code
+    const codeMatch = clean.match(/(?:code|pin|token|cle|activation)\s*[:=]\s*([A-Za-z0-9_-]{6,30})/i);
+    if (codeMatch) {
+      code = codeMatch[1].trim();
+      if (!username) serviceType = 'code';
+    } else if (!username && !macAddress && !m3uUrl) {
+      const singleCodeMatch = clean.match(/^[A-Za-z0-9_-]{8,32}$/);
+      if (singleCodeMatch) {
+        code = singleCodeMatch[0].trim();
+        serviceType = 'code';
+      }
+    }
+
+    const expDate = new Date();
+    expDate.setMonth(expDate.getMonth() + durationMonths);
+
+    return {
+      id: `iptv_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      code: code || username || '',
+      serverName: serverName || defaultServer,
+      serviceType,
+      host,
+      port,
+      username,
+      password,
+      macAddress,
+      m3uUrl,
+      durationMonths,
+      purchaseDate: new Date().toISOString(),
+      activationDate: null,
+      expirationDate: expDate.toISOString(),
+      buyPrice: 0,
+      sellPrice: 0,
+      status: 'in_stock',
+      customerId: '',
+      customerName: '',
+      customerPhone: '',
+      supplierSite: '',
+      notes: `Détecté automatiquement le ${new Date().toLocaleDateString()}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  };
+
+  // ==============================================================
+  // MULTI-DATABASES MANAGEMENT (Supports Multiple D1 / Workers)
+  // ==============================================================
+
+  const addDatabaseConfig = async (newDb) => {
+    touchActivity();
+    const profile = {
+      ...DEFAULT_DATABASE_PROFILE,
+      ...newDb,
+      id: newDb.id || `db_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      createdAt: new Date().toISOString(),
+    };
+
+    const updatedList = [...databasesList, profile];
+    setDatabasesList(updatedList);
+    await saveStoredDatabasesList(updatedList, activeDatabaseId);
+    return profile;
+  };
+
+  const updateDatabaseConfig = async (dbId, fields) => {
+    touchActivity();
+    const updatedList = databasesList.map((db) => {
+      if (db.id === dbId) {
+        return { ...db, ...fields, updatedAt: new Date().toISOString() };
+      }
+      return db;
+    });
+
+    setDatabasesList(updatedList);
+    await saveStoredDatabasesList(updatedList, activeDatabaseId);
+
+    // If currently active DB was updated, apply immediately
+    if (dbId === activeDatabaseId) {
+      const target = updatedList.find((db) => db.id === dbId);
+      if (target) {
+        await applyCloudflareConfig(target);
+      }
+    }
+  };
+
+  const deleteDatabaseConfig = async (dbId) => {
+    touchActivity();
+    if (dbId === activeDatabaseId) {
+      throw new Error('Impossible de supprimer la base de données actuellement active. Activez une autre base d\'abord.');
+    }
+    const updatedList = databasesList.filter((db) => db.id !== dbId);
+    setDatabasesList(updatedList);
+    await saveStoredDatabasesList(updatedList, activeDatabaseId);
+  };
+
+  const switchDatabase = async (dbId) => {
+    touchActivity();
+    const target = databasesList.find((db) => db.id === dbId);
+    if (!target) throw new Error('Base de données introuvable.');
+
+    setActiveDatabaseId(dbId);
+    await saveStoredDatabasesList(databasesList, dbId);
+
+    // Apply credentials to Cloudflare engine & reconnect
+    const res = await applyCloudflareConfig(target);
+    return res;
+  };
+
+  const testDatabase = async (dbConfig) => {
+    return checkCloudflareHealth(dbConfig);
+  };
+
+  // Manual Trigger for Bidirectional Sync
+  const runAutoSync = async () => {
+    setSyncMetrics((m) => ({ ...m, isSyncing: true }));
+    try {
+      // 1. Sync Firebase
+      if (isFirebaseReady()) {
+        await refreshAllFromFirebase().catch(() => {});
+      }
+      // 2. Sync Cloudflare D1
+      if (cloudflareConnected) {
+        const cfData = await fetchAllDataFromCloudflare().catch(() => null);
+        if (cfData) {
+          let count = 0;
+          if (Array.isArray(cfData.products)) {
+            setProducts(cfData.products);
+            count += cfData.products.length;
+          }
+          if (Array.isArray(cfData.sales)) {
+            setSales(cfData.sales);
+            count += cfData.sales.length;
+          }
+          if (Array.isArray(cfData.iptvCodes)) {
+            setIptvCodes(cfData.iptvCodes);
+            count += cfData.iptvCodes.length;
+          }
+          setCloudflareLastSync(new Date().toLocaleTimeString());
+          setSyncMetrics((m) => ({
+            ...m,
+            itemsReceived: (m.itemsReceived || 0) + count,
+            lastSyncTime: new Date().toLocaleTimeString(),
+            isSyncing: false,
+          }));
+        }
+      } else {
+        setSyncMetrics((m) => ({ ...m, isSyncing: false }));
+      }
+      return { success: true };
+    } catch (err) {
+      setSyncMetrics((m) => ({ ...m, isSyncing: false, error: err.message }));
+      throw err;
+    }
+  };
+
   const t = (key) => {
     return translations[language]?.[key] || translations['fr'][key] || key;
   };
@@ -2100,12 +2678,34 @@ export const AppProvider = ({ children }) => {
         cloudflareConnected,
         cloudflareError,
         cloudflareLastSync,
+        cloudflareLatency,
         applyCloudflareConfig,
         uploadAllDataToCloudflare: uploadAllDataToCloudflareHandler,
         downloadAllDataFromCloudflare: downloadAllDataFromCloudflareHandler,
         refreshAllFromCloudflare,
         initCloudflareD1Tables: () => initCloudflareTables(cloudflareConfig),
         testCloudflareHealth: (cfg) => checkCloudflareHealth(cfg || cloudflareConfig),
+
+        // Multi-Databases Management
+        databasesList,
+        activeDatabaseId,
+        addDatabaseConfig,
+        updateDatabaseConfig,
+        deleteDatabaseConfig,
+        switchDatabase,
+        testDatabase,
+
+        // IPTV & Server Subscriptions Stock
+        iptvCodes,
+        addIptvCode,
+        updateIptvCode,
+        deleteIptvCode,
+        assignIptvCodeToCustomer,
+        parseAndImportIptvText,
+
+        // Real-Time Auto-Sync Engine
+        syncMetrics,
+        runAutoSync,
       }}
     >
       {children}

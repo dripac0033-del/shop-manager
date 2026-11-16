@@ -122,3 +122,30 @@ CREATE TABLE IF NOT EXISTS store_info (
   rc TEXT,
   updatedAt TEXT
 );
+
+CREATE TABLE IF NOT EXISTS iptv_codes (
+  id TEXT PRIMARY KEY,
+  code TEXT,
+  serverName TEXT,
+  serviceType TEXT,
+  host TEXT,
+  port TEXT,
+  username TEXT,
+  password TEXT,
+  macAddress TEXT,
+  m3uUrl TEXT,
+  durationMonths INTEGER DEFAULT 12,
+  purchaseDate TEXT,
+  activationDate TEXT,
+  expirationDate TEXT,
+  buyPrice REAL DEFAULT 0,
+  sellPrice REAL DEFAULT 0,
+  status TEXT DEFAULT 'in_stock',
+  customerId TEXT,
+  customerName TEXT,
+  customerPhone TEXT,
+  supplierSite TEXT,
+  notes TEXT,
+  createdAt TEXT,
+  updatedAt TEXT
+);

@@ -19,6 +19,7 @@ import ServicesRepairsScreen from './src/screens/ServicesRepairsScreen';
 import ExpensesScreen from './src/screens/ExpensesScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import IPTVStockScreen from './src/screens/IPTVStockScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -30,6 +31,7 @@ function MainTabs() {
     products = [],
     customers = [],
     repairs = [],
+    iptvCodes = [],
     openStockModal,
     currentUser,
     logout,
@@ -45,6 +47,7 @@ function MainTabs() {
   ).length;
   const customersWithDebtCount = (customers || []).filter((c) => (c.debt || 0) > 0).length;
   const pendingRepairsCount = (repairs || []).filter((r) => r.status !== 'delivered' && r.status !== 'cancelled').length;
+  const availableIptvCount = (iptvCodes || []).filter((c) => c.status === 'in_stock').length;
 
   const handleLogout = () => {
     const confirmMsg = isRTL ? 'هل تريد تسجيل الخروج؟' : 'Voulez-vous vous déconnecter ?';
@@ -191,6 +194,22 @@ function MainTabs() {
       />
 
       <Tab.Screen
+        name="IPTV"
+        component={IPTVStockScreen}
+        listeners={{
+          tabPress: () => refreshAllFromFirebase(),
+        }}
+        options={{
+          title: t('iptvStock') || 'IPTV',
+          tabBarBadge: availableIptvCount > 0 ? availableIptvCount : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#8b5cf6' },
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="tv-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Tab.Screen
         name="Customers"
         component={CustomersScreen}
         listeners={{
@@ -264,6 +283,11 @@ function NavigationRoot() {
           name="ServicesRepairs"
           component={ServicesRepairsScreen}
           options={{ title: t('servicesRepairs') }}
+        />
+        <Stack.Screen
+          name="IPTV"
+          component={IPTVStockScreen}
+          options={{ title: t('iptvStock') || 'IPTV & Serveurs' }}
         />
         <Stack.Screen
           name="Expenses"

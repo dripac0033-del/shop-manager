@@ -295,6 +295,46 @@ export function subscribeToFirebaseStoreInfo(onUpdate) {
   }
 }
 
+// Subscribe to Cloudflare Config from Firebase
+export function subscribeToCloudflareConfigFromFirebase(onUpdate) {
+  if (!dbInstance) return () => {};
+  try {
+    const cfRef = doc(dbInstance, 'settings', 'cloudflare');
+    return onSnapshot(cfRef, (snap) => {
+      if (snap.exists() && onUpdate) {
+        onUpdate(snap.data());
+      }
+    });
+  } catch (err) {
+    console.warn('Error subscribing to cloudflare config in Firebase:', err);
+    return () => {};
+  }
+}
+
+// Subscribe to Multi-Databases List from Firebase
+export function subscribeToDatabasesListFromFirebase(onUpdate) {
+  if (!dbInstance) return () => {};
+  try {
+    const dbRef = doc(dbInstance, 'settings', 'databases');
+    return onSnapshot(dbRef, (snap) => {
+      if (snap.exists() && onUpdate) {
+        onUpdate(snap.data());
+      }
+    });
+  } catch (err) {
+    console.warn('Error subscribing to databases config in Firebase:', err);
+    return () => {};
+  }
+}
+
+// Subscribe to IPTV Codes from Firebase
+export function subscribeToFirebaseIptvCodes(onUpdate, onError) {
+  return subscribeToCollection('iptv_codes', (items) => {
+    items.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    if (onUpdate) onUpdate(items);
+  }, onError);
+}
+
 /* ==============================================================
  * SPECIFIC CRUD CALLS
  * ============================================================== */
@@ -468,6 +508,80 @@ export async function fetchStoreInfoFromFirebase() {
   return null;
 }
 
+// Cloudflare Configuration on Firebase
+export async function saveCloudflareConfigToFirebase(config) {
+  if (!dbInstance) return null;
+  try {
+    const cfRef = doc(dbInstance, 'settings', 'cloudflare');
+    await setDoc(cfRef, sanitizeDoc({
+      ...config,
+      updatedAt: new Date().toISOString(),
+    }), { merge: true });
+    return { success: true };
+  } catch (err) {
+    console.warn('Failed to save cloudflare config to Firebase:', err);
+    throw err;
+  }
+}
+
+export async function fetchCloudflareConfigFromFirebase() {
+  if (!dbInstance) return null;
+  try {
+    const cfRef = doc(dbInstance, 'settings', 'cloudflare');
+    const snap = await getDoc(cfRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch cloudflare config from Firebase:', err);
+  }
+  return null;
+}
+
+// Multi-Databases List on Firebase
+export async function saveDatabasesListToFirebase(databasesList, activeId = 'default') {
+  if (!dbInstance) return null;
+  try {
+    const dbRef = doc(dbInstance, 'settings', 'databases');
+    await setDoc(dbRef, sanitizeDoc({
+      databases: databasesList,
+      activeDatabaseId: activeId,
+      updatedAt: new Date().toISOString(),
+    }), { merge: true });
+    return { success: true };
+  } catch (err) {
+    console.warn('Failed to save databases list to Firebase:', err);
+    throw err;
+  }
+}
+
+export async function fetchDatabasesListFromFirebase() {
+  if (!dbInstance) return null;
+  try {
+    const dbRef = doc(dbInstance, 'settings', 'databases');
+    const snap = await getDoc(dbRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch databases list from Firebase:', err);
+  }
+  return null;
+}
+
+// IPTV & Servers Codes
+export async function saveIptvCodeToFirebase(code) {
+  return saveItemToCollection('iptv_codes', code);
+}
+
+export async function deleteIptvCodeFromFirebase(codeId) {
+  return deleteItemFromCollection('iptv_codes', codeId);
+}
+
+export async function fetchIptvCodesFromFirebase() {
+  return fetchCollectionItems('iptv_codes');
+}
+
 // Clear Collection
 export async function clearFirebaseCollection(collectionName) {
   if (!dbInstance) return;
@@ -510,6 +624,7 @@ export async function uploadAllDataToFirebase(allData) {
     repairs: 0,
     expenses: 0,
     users: 0,
+    iptvCodes: 0,
   };
 
   if (Array.isArray(allData.products)) {
@@ -593,6 +708,15 @@ export async function uploadAllDataToFirebase(allData) {
     }
   }
 
+  if (Array.isArray(allData.iptvCodes)) {
+    for (const ic of allData.iptvCodes) {
+      if (ic && ic.id) {
+        await saveIptvCodeToFirebase(ic);
+        counts.iptvCodes++;
+      }
+    }
+  }
+
   if (allData.storeInfo) {
     await saveStoreInfoToFirebase(allData.storeInfo);
   }
@@ -622,6 +746,7 @@ export async function fetchAllDataFromFirebase() {
     expenses,
     users,
     storeInfo,
+    iptvCodes,
   ] = await Promise.all([
     fetchProductsFromFirebase(),
     fetchCategoriesFromFirebase(),
@@ -633,6 +758,7 @@ export async function fetchAllDataFromFirebase() {
     fetchExpensesFromFirebase(),
     fetchUsersFromFirebase(),
     fetchStoreInfoFromFirebase(),
+    fetchIptvCodesFromFirebase().catch(() => []),
   ]);
 
   return {
@@ -646,5 +772,6 @@ export async function fetchAllDataFromFirebase() {
     expenses,
     users,
     storeInfo,
+    iptvCodes,
   };
 }

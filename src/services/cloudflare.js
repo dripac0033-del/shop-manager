@@ -1,6 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import {
+  saveCloudflareConfigToFirebase,
+  fetchCloudflareConfigFromFirebase,
+  saveDatabasesListToFirebase,
+  fetchDatabasesListFromFirebase,
+} from './firebase';
 
 const CLOUDFLARE_CONFIG_KEY = '@cloudflare_config';
+const DATABASES_LIST_KEY = '@databases_list';
+const ACTIVE_DB_KEY = '@active_db_id';
 
 /**
  * Cloudflare Configuration Default Structure
@@ -12,14 +21,45 @@ export const DEFAULT_CLOUDFLARE_CONFIG = {
   accountId: '',
   databaseId: '',
   apiToken: '',
-  workerUrl: '', // Optional: Cloudflare Worker API URL
+  workerUrl: '', // Cloudflare Worker API URL (Recommandé pour Web & Mobile)
+};
+
+export const DEFAULT_DATABASE_PROFILE = {
+  id: 'default',
+  name: 'Base Cloudflare Principale',
+  type: 'worker', // 'worker' | 'direct'
+  workerUrl: '',
+  accountId: '',
+  databaseId: '',
+  apiToken: '',
+  isActive: true,
+  createdAt: new Date().toISOString(),
 };
 
 /**
- * Get stored Cloudflare configuration from AsyncStorage
+ * Get stored Cloudflare configuration from Firebase first, then AsyncStorage
  */
 export async function getStoredCloudflareConfig() {
   try {
+    // 1. Try fetching synced config from Firebase Firestore first
+    try {
+      const fbConf = await fetchCloudflareConfigFromFirebase();
+      if (fbConf && (fbConf.accountId || fbConf.workerUrl || fbConf.databaseId)) {
+        const clean = {
+          accountId: (fbConf.accountId || '').trim(),
+          databaseId: (fbConf.databaseId || '').trim(),
+          apiToken: (fbConf.apiToken || '').trim(),
+          workerUrl: (fbConf.workerUrl || '').trim().replace(/\/+$/, ''),
+        };
+        // Cache locally for offline resilience
+        await AsyncStorage.setItem(CLOUDFLARE_CONFIG_KEY, JSON.stringify(clean)).catch(() => {});
+        return clean;
+      }
+    } catch (fbErr) {
+      // Firebase might be offline or initializing, proceed to local storage
+    }
+
+    // 2. Fallback to AsyncStorage
     const raw = await AsyncStorage.getItem(CLOUDFLARE_CONFIG_KEY);
     if (raw) {
       return JSON.parse(raw);
@@ -31,20 +71,123 @@ export async function getStoredCloudflareConfig() {
 }
 
 /**
- * Save Cloudflare configuration to AsyncStorage
+ * Save Cloudflare configuration to AsyncStorage AND Firebase Firestore
  */
 export async function saveCloudflareConfig(config) {
   try {
+    let workerUrlClean = (config.workerUrl || '').trim().replace(/\/+$/, '');
+    if (workerUrlClean && !workerUrlClean.startsWith('http://') && !workerUrlClean.startsWith('https://')) {
+      workerUrlClean = `https://${workerUrlClean}`;
+    }
+
     const cleanConfig = {
       accountId: (config.accountId || '').trim(),
       databaseId: (config.databaseId || '').trim(),
       apiToken: (config.apiToken || '').trim(),
-      workerUrl: (config.workerUrl || '').trim().replace(/\/+$/, ''),
+      workerUrl: workerUrlClean,
+      updatedAt: new Date().toISOString(),
     };
+
+    // Save to local device storage
     await AsyncStorage.setItem(CLOUDFLARE_CONFIG_KEY, JSON.stringify(cleanConfig));
+
+    // Also persist directly into Firebase Firestore for universal multi-device sync
+    try {
+      await saveCloudflareConfigToFirebase(cleanConfig);
+    } catch (fbErr) {
+      console.warn('Could not save Cloudflare config to Firebase (offline?):', fbErr.message);
+    }
+
     return cleanConfig;
   } catch (err) {
     console.warn('Failed to save Cloudflare config:', err);
+    throw err;
+  }
+}
+
+/* ==============================================================
+ * MULTI-DATABASES MANAGEMENT
+ * Allows adding multiple Cloudflare/Worker databases and switching
+ * ============================================================== */
+
+export async function getStoredDatabasesList() {
+  try {
+    // 1. Try Firebase first
+    try {
+      const fbData = await fetchDatabasesListFromFirebase();
+      if (fbData && Array.isArray(fbData.databases) && fbData.databases.length > 0) {
+        await AsyncStorage.setItem(DATABASES_LIST_KEY, JSON.stringify(fbData.databases)).catch(() => {});
+        if (fbData.activeDatabaseId) {
+          await AsyncStorage.setItem(ACTIVE_DB_KEY, fbData.activeDatabaseId).catch(() => {});
+        }
+        return {
+          databases: fbData.databases,
+          activeDatabaseId: fbData.activeDatabaseId || fbData.databases[0]?.id || 'default',
+        };
+      }
+    } catch (fbErr) {}
+
+    // 2. Fallback to AsyncStorage
+    const rawList = await AsyncStorage.getItem(DATABASES_LIST_KEY);
+    const activeId = (await AsyncStorage.getItem(ACTIVE_DB_KEY)) || 'default';
+    if (rawList) {
+      const parsed = JSON.parse(rawList);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return { databases: parsed, activeDatabaseId: activeId };
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to get databases list:', err);
+  }
+
+  // Initial default list seeded with current config
+  const current = await getStoredCloudflareConfig();
+  const initialProfile = {
+    ...DEFAULT_DATABASE_PROFILE,
+    ...current,
+    id: 'default',
+    name: 'Base Cloudflare Principale',
+    isActive: true,
+  };
+  return {
+    databases: [initialProfile],
+    activeDatabaseId: 'default',
+  };
+}
+
+export async function saveStoredDatabasesList(databases, activeDatabaseId = 'default') {
+  try {
+    const cleanList = (databases || []).map((db) => {
+      let workerUrlClean = (db.workerUrl || '').trim().replace(/\/+$/, '');
+      if (workerUrlClean && !workerUrlClean.startsWith('http://') && !workerUrlClean.startsWith('https://')) {
+        workerUrlClean = `https://${workerUrlClean}`;
+      }
+      return {
+        id: db.id || `db_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        name: (db.name || 'Base de Données').trim(),
+        type: db.type || 'worker',
+        workerUrl: workerUrlClean,
+        accountId: (db.accountId || '').trim(),
+        databaseId: (db.databaseId || '').trim(),
+        apiToken: (db.apiToken || '').trim(),
+        isActive: db.id === activeDatabaseId,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    await AsyncStorage.setItem(DATABASES_LIST_KEY, JSON.stringify(cleanList));
+    await AsyncStorage.setItem(ACTIVE_DB_KEY, activeDatabaseId);
+
+    // Sync to Firebase
+    try {
+      await saveDatabasesListToFirebase(cleanList, activeDatabaseId);
+    } catch (fbErr) {
+      console.warn('Could not save databases to Firebase:', fbErr.message);
+    }
+
+    return { databases: cleanList, activeDatabaseId };
+  } catch (err) {
+    console.warn('Failed to save databases list:', err);
     throw err;
   }
 }
@@ -58,8 +201,13 @@ export async function executeD1Query(sql, params = [], config = null) {
 
   // 1. If Cloudflare Worker URL is specified, use worker endpoint
   if (conf.workerUrl) {
+    let cleanUrl = conf.workerUrl.trim().replace(/\/+$/, '');
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      cleanUrl = `https://${cleanUrl}`;
+    }
+
     try {
-      const res = await fetch(`${conf.workerUrl}/query`, {
+      const res = await fetch(`${cleanUrl}/query`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -83,13 +231,17 @@ export async function executeD1Query(sql, params = [], config = null) {
     throw new Error('Configuration Cloudflare D1 incomplète (Account ID, Database ID ou API Token manquant).');
   }
 
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${conf.accountId}/d1/database/${conf.databaseId}/query`;
+  const accId = conf.accountId.trim();
+  const dbId = conf.databaseId.trim();
+  const token = conf.apiToken.trim();
+
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accId}/d1/database/${dbId}/query`;
 
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${conf.apiToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -107,15 +259,24 @@ export async function executeD1Query(sql, params = [], config = null) {
     const firstResult = data.result && data.result[0];
     return firstResult?.results || [];
   } catch (err) {
+    // Detect Browser CORS restriction
+    if (Platform.OS === 'web' && (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('Network'))) {
+      throw new Error(
+        'CORS_BROWSER_RESTRICTION: Cloudflare bloque les requêtes directes du navigateur vers api.cloudflare.com pour des raisons de sécurité CORS.\n' +
+        '👉 Solution Recommandée : Déployez le Worker gratuit fourni (cloudflare/worker.js) et renseignez son URL (ex: https://shop-api.moncompte.workers.dev).\n' +
+        'Sur mobile (Android / iOS), l\'accès direct fonctionne sans restriction.'
+      );
+    }
     console.warn('Cloudflare D1 REST query error:', err);
     throw err;
   }
 }
 
 /**
- * Test health & connectivity of Cloudflare D1 / Worker
+ * Test health & connectivity of Cloudflare D1 / Worker with latency check
  */
 export async function checkCloudflareHealth(customConfig = null) {
+  const startTime = Date.now();
   try {
     const conf = customConfig || (await getStoredCloudflareConfig());
     if (!conf.workerUrl && (!conf.accountId || !conf.databaseId || !conf.apiToken)) {
@@ -126,18 +287,71 @@ export async function checkCloudflareHealth(customConfig = null) {
       };
     }
 
-    // Try a simple SELECT 1 query
+    // A. Mode Worker Cloudflare
+    if (conf.workerUrl) {
+      let cleanUrl = conf.workerUrl.trim().replace(/\/+$/, '');
+      if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+        cleanUrl = `https://${cleanUrl}`;
+      }
+
+      // Test /health endpoint first
+      try {
+        const hRes = await fetch(`${cleanUrl}/health`, { method: 'GET' });
+        if (hRes.ok) {
+          const hData = await hRes.json().catch(() => null);
+          const latencyMs = Date.now() - startTime;
+          return {
+            success: true,
+            status: 'OK',
+            mode: 'worker',
+            latencyMs,
+            message: `Connexion Cloudflare Worker établie (${latencyMs}ms) !`,
+            details: hData,
+          };
+        }
+      } catch (hErr) {
+        // Fallback to /query test
+      }
+
+      // Test SELECT 1 via query
+      await executeD1Query('SELECT 1 as is_alive', [], conf);
+      const latencyMs = Date.now() - startTime;
+      return {
+        success: true,
+        status: 'OK',
+        mode: 'worker',
+        latencyMs,
+        message: `Connexion Cloudflare Worker active (${latencyMs}ms) !`,
+      };
+    }
+
+    // B. Mode Direct Cloudflare D1
+    // Detect common configuration mistakes:
+    if (conf.databaseId && !conf.databaseId.includes('-') && conf.databaseId.length < 30) {
+      return {
+        success: false,
+        status: 'INVALID_DATABASE_ID',
+        mode: 'direct',
+        error: 'Attention : le Database ID doit être un UUID (ex: 7b3e1f...-...), pas le nom texte de la base.',
+      };
+    }
+
+    // Try query SELECT 1
     await executeD1Query('SELECT 1 as is_alive', [], conf);
+    const latencyMs = Date.now() - startTime;
     return {
       success: true,
       status: 'OK',
-      message: 'Connexion Cloudflare D1 établie et opérationnelle !',
+      mode: 'direct',
+      latencyMs,
+      message: `Connexion Cloudflare D1 directe établie (${latencyMs}ms) !`,
     };
   } catch (err) {
+    const errorMsg = err.message || 'Impossible de joindre la base Cloudflare D1.';
     return {
       success: false,
-      status: 'ERROR',
-      error: err.message || 'Impossible de joindre la base Cloudflare D1.',
+      status: errorMsg.includes('CORS_BROWSER_RESTRICTION') ? 'CORS_RESTRICTION' : 'ERROR',
+      error: errorMsg,
     };
   }
 }
@@ -275,6 +489,34 @@ export async function initCloudflareTables(config = null) {
       footer TEXT,
       nif TEXT,
       rc TEXT,
+      updatedAt TEXT
+    );`,
+
+    // 10. IPTV & Server Subscriptions Stock (High Capacity Inventory)
+    `CREATE TABLE IF NOT EXISTS iptv_codes (
+      id TEXT PRIMARY KEY,
+      code TEXT,
+      serverName TEXT,
+      serviceType TEXT,
+      host TEXT,
+      port TEXT,
+      username TEXT,
+      password TEXT,
+      macAddress TEXT,
+      m3uUrl TEXT,
+      durationMonths INTEGER DEFAULT 12,
+      purchaseDate TEXT,
+      activationDate TEXT,
+      expirationDate TEXT,
+      buyPrice REAL DEFAULT 0,
+      sellPrice REAL DEFAULT 0,
+      status TEXT DEFAULT 'in_stock',
+      customerId TEXT,
+      customerName TEXT,
+      customerPhone TEXT,
+      supplierSite TEXT,
+      notes TEXT,
+      createdAt TEXT,
       updatedAt TEXT
     );`,
   ];
@@ -632,6 +874,79 @@ export async function fetchStoreInfoFromCloudflare() {
   return rows.length > 0 ? rows[0] : null;
 }
 
+// --- IPTV & Server Subscriptions ---
+export async function saveIptvCodeToCloudflare(item) {
+  const sql = `INSERT INTO iptv_codes (
+    id, code, serverName, serviceType, host, port, username, password, macAddress, m3uUrl,
+    durationMonths, purchaseDate, activationDate, expirationDate, buyPrice, sellPrice, status,
+    customerId, customerName, customerPhone, supplierSite, notes, createdAt, updatedAt
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code=excluded.code,
+    serverName=excluded.serverName,
+    serviceType=excluded.serviceType,
+    host=excluded.host,
+    port=excluded.port,
+    username=excluded.username,
+    password=excluded.password,
+    macAddress=excluded.macAddress,
+    m3uUrl=excluded.m3uUrl,
+    durationMonths=excluded.durationMonths,
+    purchaseDate=excluded.purchaseDate,
+    activationDate=excluded.activationDate,
+    expirationDate=excluded.expirationDate,
+    buyPrice=excluded.buyPrice,
+    sellPrice=excluded.sellPrice,
+    status=excluded.status,
+    customerId=excluded.customerId,
+    customerName=excluded.customerName,
+    customerPhone=excluded.customerPhone,
+    supplierSite=excluded.supplierSite,
+    notes=excluded.notes,
+    updatedAt=excluded.updatedAt;`;
+
+  return executeD1Query(sql, [
+    String(item.id),
+    item.code || '',
+    item.serverName || 'Serveur IPTV',
+    item.serviceType || 'code',
+    item.host || '',
+    String(item.port || ''),
+    item.username || '',
+    item.password || '',
+    item.macAddress || '',
+    item.m3uUrl || '',
+    Number(item.durationMonths || 12),
+    item.purchaseDate || new Date().toISOString(),
+    item.activationDate || null,
+    item.expirationDate || null,
+    Number(item.buyPrice || 0),
+    Number(item.sellPrice || 0),
+    item.status || 'in_stock',
+    item.customerId || '',
+    item.customerName || '',
+    item.customerPhone || '',
+    item.supplierSite || '',
+    item.notes || '',
+    item.createdAt || new Date().toISOString(),
+    new Date().toISOString(),
+  ]);
+}
+
+export async function deleteIptvCodeFromCloudflare(id) {
+  return executeD1Query('DELETE FROM iptv_codes WHERE id = ?;', [String(id)]);
+}
+
+export async function fetchIptvCodesFromCloudflare() {
+  const rows = await executeD1Query('SELECT * FROM iptv_codes ORDER BY createdAt DESC;');
+  return (rows || []).map((r) => ({
+    ...r,
+    durationMonths: Number(r.durationMonths || 12),
+    buyPrice: Number(r.buyPrice || 0),
+    sellPrice: Number(r.sellPrice || 0),
+  }));
+}
+
 /* ==============================================================
  * BULK UPLOAD & DOWNLOAD FOR CLOUDFLARE
  * ============================================================== */
@@ -648,6 +963,7 @@ export async function uploadAllDataToCloudflare(allData) {
     services: 0,
     repairs: 0,
     expenses: 0,
+    iptvCodes: 0,
   };
 
   if (Array.isArray(allData.products)) {
@@ -722,6 +1038,15 @@ export async function uploadAllDataToCloudflare(allData) {
     }
   }
 
+  if (Array.isArray(allData.iptvCodes)) {
+    for (const ic of allData.iptvCodes) {
+      if (ic && ic.id) {
+        await saveIptvCodeToCloudflare(ic);
+        counts.iptvCodes++;
+      }
+    }
+  }
+
   if (allData.storeInfo) {
     await saveStoreInfoToCloudflare(allData.storeInfo);
   }
@@ -739,6 +1064,7 @@ export async function fetchAllDataFromCloudflare() {
     services,
     repairs,
     expenses,
+    iptvCodes,
     storeInfo,
   ] = await Promise.all([
     fetchProductsFromCloudflare().catch(() => []),
@@ -749,6 +1075,7 @@ export async function fetchAllDataFromCloudflare() {
     fetchServicesFromCloudflare().catch(() => []),
     fetchRepairsFromCloudflare().catch(() => []),
     fetchExpensesFromCloudflare().catch(() => []),
+    fetchIptvCodesFromCloudflare().catch(() => []),
     fetchStoreInfoFromCloudflare().catch(() => null),
   ]);
 
@@ -761,6 +1088,7 @@ export async function fetchAllDataFromCloudflare() {
     services,
     repairs,
     expenses,
+    iptvCodes,
     storeInfo,
   };
 }

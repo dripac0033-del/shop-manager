@@ -60,12 +60,24 @@ export default function SettingsScreen() {
     cloudflareConnected,
     cloudflareError,
     cloudflareLastSync,
+    cloudflareLatency,
     applyCloudflareConfig,
     uploadAllDataToCloudflare,
     downloadAllDataFromCloudflare,
     initCloudflareD1Tables,
     testCloudflareHealth,
     refreshAllFromCloudflare,
+    // Multi-Databases
+    databasesList = [],
+    activeDatabaseId = 'default',
+    addDatabaseConfig,
+    updateDatabaseConfig,
+    deleteDatabaseConfig,
+    switchDatabase,
+    testDatabase,
+    // Real-Time Auto Sync
+    syncMetrics,
+    runAutoSync,
   } = useApp();
 
   const [name, setName] = useState(storeInfo.name || '');
@@ -89,6 +101,18 @@ export default function SettingsScreen() {
   const [cfWorkerUrl, setCfWorkerUrl] = useState(cloudflareConfig?.workerUrl || '');
   const [testingCf, setTestingCf] = useState(false);
   const [cfSyncing, setCfSyncing] = useState(false);
+
+  // Multi-Databases Form State
+  const [addDbModalVisible, setAddDbModalVisible] = useState(false);
+  const [editingDbId, setEditingDbId] = useState(null);
+  const [dbFormName, setDbFormName] = useState('');
+  const [dbFormType, setDbFormType] = useState('worker');
+  const [dbFormWorkerUrl, setDbFormWorkerUrl] = useState('');
+  const [dbFormAccountId, setDbFormAccountId] = useState('');
+  const [dbFormDatabaseId, setDbFormDatabaseId] = useState('');
+  const [dbFormApiToken, setDbFormApiToken] = useState('');
+  const [testingDbId, setTestingDbId] = useState(null);
+  const [autoSyncRunning, setAutoSyncRunning] = useState(false);
 
   // New User Form Modal (Dedicated 'users' collection)
   const [userModalVisible, setUserModalVisible] = useState(false);
@@ -252,6 +276,121 @@ export default function SettingsScreen() {
         isRTL ? 'خطأ في التحميل من السحابة' : 'Erreur de récupération depuis le Cloud',
         err.message
       );
+    }
+  };
+
+  // Multi-Databases Handlers
+  const handleOpenAddDatabase = () => {
+    setEditingDbId(null);
+    setDbFormName('Nouvelle Base D1');
+    setDbFormType('worker');
+    setDbFormWorkerUrl('');
+    setDbFormAccountId('');
+    setDbFormDatabaseId('');
+    setDbFormApiToken('');
+    setAddDbModalVisible(true);
+  };
+
+  const handleOpenEditDatabase = (db) => {
+    setEditingDbId(db.id);
+    setDbFormName(db.name || '');
+    setDbFormType(db.type || 'worker');
+    setDbFormWorkerUrl(db.workerUrl || '');
+    setDbFormAccountId(db.accountId || '');
+    setDbFormDatabaseId(db.databaseId || '');
+    setDbFormApiToken(db.apiToken || '');
+    setAddDbModalVisible(true);
+  };
+
+  const handleSaveDatabase = async () => {
+    if (!dbFormName.trim()) {
+      Alert.alert('Erreur', 'Veuillez saisir un nom pour cette base.');
+      return;
+    }
+
+    const payload = {
+      name: dbFormName.trim(),
+      type: dbFormType,
+      workerUrl: dbFormWorkerUrl.trim(),
+      accountId: dbFormAccountId.trim(),
+      databaseId: dbFormDatabaseId.trim(),
+      apiToken: dbFormApiToken.trim(),
+    };
+
+    try {
+      if (editingDbId) {
+        await updateDatabaseConfig(editingDbId, payload);
+        showToast(isRTL ? '✅ تم تحديث بيانات القاعدة بنجاح' : '✅ Base de données mise à jour !');
+      } else {
+        await addDatabaseConfig(payload);
+        showToast(isRTL ? '✅ تم إضافة وحفظ القاعدة على فايربيس' : '✅ Base ajoutée & enregistrée sur Firebase !');
+      }
+      setAddDbModalVisible(false);
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    }
+  };
+
+  const handleDeleteDatabase = async (dbId) => {
+    try {
+      await deleteDatabaseConfig(dbId);
+      showToast(isRTL ? '✅ تم حذف القاعدة' : '✅ Base supprimée');
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    }
+  };
+
+  const handleSwitchDatabase = async (dbId) => {
+    setTestingCf(true);
+    try {
+      const res = await switchDatabase(dbId);
+      if (res.success) {
+        showToast(isRTL ? '✅ تم التبديل إلى القاعدة بنجاح' : '✅ Base de données activée et connectée !');
+        Alert.alert(
+          isRTL ? 'تم التبديل' : 'Base Active Modifiée',
+          isRTL ? 'تم تفعيل القاعدة الجديدة وتحميل مخزونها ومبيعاتها بنجاح' : 'La nouvelle base est active et ses données ont été synchronisées !'
+        );
+      } else {
+        Alert.alert('Attention', res.error || 'Impossible d\'activer cette base');
+      }
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setTestingCf(false);
+    }
+  };
+
+  const handleTestSpecificDatabase = async (db) => {
+    setTestingDbId(db.id);
+    try {
+      const res = await testDatabase(db);
+      if (res.success) {
+        Alert.alert(
+          isRTL ? 'الاتصال بالقاعدة ناجح' : 'Connexion Réussie !',
+          `${db.name} : ${res.message}`
+        );
+      } else {
+        Alert.alert(
+          isRTL ? 'فشل الاتصال' : 'Échec de connexion',
+          res.error || 'Impossible de joindre cette base'
+        );
+      }
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setTestingDbId(null);
+    }
+  };
+
+  const handleTriggerAutoSync = async () => {
+    setAutoSyncRunning(true);
+    try {
+      await runAutoSync();
+      showToast(isRTL ? '✅ تمت المزامنة الثنائية بنجاح' : '✅ Synchronisation bidirectionnelle réussie !');
+    } catch (err) {
+      Alert.alert('Erreur Synchro', err.message);
+    } finally {
+      setAutoSyncRunning(false);
     }
   };
 
@@ -796,26 +935,34 @@ export default function SettingsScreen() {
           <Ionicons name="server" size={20} color="#f97316" style={{ marginRight: 6 }} />
           <Text style={styles.sectionTitle}>{t('cloudflareDatabase') || 'Base Cloudflare D1'}</Text>
         </View>
-        <View
-          style={[
-            styles.statusPill,
-            cloudflareConnected ? styles.statusPillGreen : styles.statusPillGray,
-          ]}
-        >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {cloudflareLatency !== null && (
+            <View style={styles.latencyBadge}>
+              <Ionicons name="speedometer-outline" size={12} color="#059669" />
+              <Text style={styles.latencyBadgeText}>{cloudflareLatency} ms</Text>
+            </View>
+          )}
           <View
             style={[
-              styles.statusDot,
-              { backgroundColor: cloudflareConnected ? theme.colors.success : theme.colors.textMuted },
-            ]}
-          />
-          <Text
-            style={[
-              styles.statusPillText,
-              { color: cloudflareConnected ? theme.colors.success : theme.colors.textMuted },
+              styles.statusPill,
+              cloudflareConnected ? styles.statusPillGreen : styles.statusPillGray,
             ]}
           >
-            {cloudflareConnected ? (isRTL ? 'D1 متصل' : 'D1 Connecté') : (isRTL ? 'D1 غير متصل' : 'D1 Déconnecté')}
-          </Text>
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: cloudflareConnected ? theme.colors.success : theme.colors.textMuted },
+              ]}
+            />
+            <Text
+              style={[
+                styles.statusPillText,
+                { color: cloudflareConnected ? theme.colors.success : theme.colors.textMuted },
+              ]}
+            >
+              {cloudflareConnected ? (isRTL ? 'D1 متصل' : 'D1 Connecté') : (isRTL ? 'D1 غير متصل' : 'D1 Déconnecté')}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -843,6 +990,22 @@ export default function SettingsScreen() {
             </View>
           </View>
         </View>
+
+        {Platform.OS === 'web' && !cfWorkerUrl.trim() && (
+          <View style={styles.corsAlertBox}>
+            <Ionicons name="warning" size={18} color="#d97706" style={{ marginTop: 2 }} />
+            <View style={{ marginLeft: 8, flex: 1 }}>
+              <Text style={styles.corsAlertTitle}>
+                {isRTL ? 'تنبيه قيود المتصفح (CORS)' : 'Attention Navigateur Web (CORS)'}
+              </Text>
+              <Text style={styles.corsAlertText}>
+                {isRTL
+                  ? 'المتصفح يحجب الاتصال المباشر بـ Cloudflare بسبب قيود CORS. يرجى إدخال رابط Cloudflare Worker لضمان اتصال مستقر وسريع 100%.'
+                  : 'Sur navigateur web, Cloudflare bloque les requêtes REST directes (CORS). Renseignez l\'URL de votre Cloudflare Worker pour un accès 100% stable sans blocage.'}
+              </Text>
+            </View>
+          </View>
+        )}
 
         <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Worker URL ({isRTL ? 'اختياري في حال استخدام وركر' : 'Optionnel si Worker déployé'})</Text>
         <TextInput
@@ -970,6 +1133,211 @@ export default function SettingsScreen() {
             </View>
           )}
         </View>
+      </View>
+
+      {/* Real-Time Auto-Sync Engine Monitor */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse, { marginTop: 24 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="sync-circle" size={20} color="#0284c7" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>
+            {t('autoSyncStatus') || (isRTL ? 'المزامنة التلقائية اللحظية (35 ثانية)' : 'Synchronisation Temps Réel Automatique (35s)')}
+          </Text>
+        </View>
+        <View style={[styles.autoSyncBadge, { backgroundColor: syncMetrics?.isSyncing || autoSyncRunning ? '#fef3c7' : '#ecfdf5' }]}>
+          <View style={[styles.statusDot, { backgroundColor: syncMetrics?.isSyncing || autoSyncRunning ? '#d97706' : '#059669' }]} />
+          <Text style={[styles.autoSyncBadgeText, { color: syncMetrics?.isSyncing || autoSyncRunning ? '#b45309' : '#047857' }]}>
+            {syncMetrics?.isSyncing || autoSyncRunning
+              ? (isRTL ? 'جاري المزامنة...' : 'En cours...')
+              : (isRTL ? 'نشط تلقائياً' : 'Actif en continu')}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.cardHelpText, isRTL && styles.textRight]}>
+          {isRTL
+            ? 'يقوم النظام بمزامنة فورية ثنائية الاتجاه (إرسال واستقبال التغييرات) في الخلفية كل 35 ثانية، مع حفظ آمن للمعلومات الشخصية في Firebase والبيانات التشغيلية في Cloudflare D1.'
+            : 'Le moteur synchronise en continu les flux entrants et sortants en arrière-plan toutes les 35 secondes, tout en garantissant la séparation stricte des données sensibles (Firebase) et de masse (Cloudflare D1).'}
+        </Text>
+
+        <View style={[styles.autoSyncMetricsRow, isRTL && styles.rowReverse]}>
+          <View style={[styles.metricCol, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }]}>
+            <Ionicons name="arrow-up-circle" size={22} color="#16a34a" />
+            <Text style={styles.metricValue}>{syncMetrics?.itemsSent || 0}</Text>
+            <Text style={styles.metricLabel}>{isRTL ? 'بيانات أرسلت' : 'Données envoyées'}</Text>
+          </View>
+
+          <View style={[styles.metricCol, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
+            <Ionicons name="arrow-down-circle" size={22} color="#2563eb" />
+            <Text style={styles.metricValue}>{syncMetrics?.itemsReceived || 0}</Text>
+            <Text style={styles.metricLabel}>{isRTL ? 'بيانات استقبلت' : 'Données reçues'}</Text>
+          </View>
+
+          <View style={[styles.metricCol, { backgroundColor: '#faf5ff', borderColor: '#e9d5ff' }]}>
+            <Ionicons name="speedometer-outline" size={22} color="#9333ea" />
+            <Text style={styles.metricValue}>{cloudflareLatency !== null ? `${cloudflareLatency}ms` : '--'}</Text>
+            <Text style={styles.metricLabel}>{isRTL ? 'زمن الاستجابة' : 'Latence D1'}</Text>
+          </View>
+        </View>
+
+        {syncMetrics?.lastSyncTime ? (
+          <Text style={[styles.lastSyncInfoText, isRTL && styles.textRight]}>
+            {isRTL ? '🕒 آخر دورة مزامنة مكتملة: ' : '🕒 Dernière synchronisation réussie : '}
+            {syncMetrics.lastSyncTime}
+          </Text>
+        ) : null}
+
+        <TouchableOpacity
+          style={[styles.manualSyncBtn, autoSyncRunning && { opacity: 0.7 }]}
+          onPress={handleTriggerAutoSync}
+          disabled={autoSyncRunning}
+        >
+          {autoSyncRunning ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <>
+              <Ionicons name="refresh" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text style={styles.manualSyncBtnText}>
+                {isRTL ? 'تشغيل المزامنة الآن فورياً' : 'Déclencher la synchronisation maintenant'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Multi-Databases Manager */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse, { marginTop: 24 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="layers-outline" size={20} color="#7c3aed" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>
+            {t('multiDatabasesTitle') || (isRTL ? 'إدارة قواعد البيانات المتعددة' : 'Multi-Bases de Données (D1)')}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.addDbHeaderBtn} onPress={handleOpenAddDatabase}>
+          <Ionicons name="add-circle-outline" size={16} color="#ffffff" />
+          <Text style={styles.addDbHeaderBtnText}>{isRTL ? 'إضافة قاعدة' : 'Ajouter une base'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.cardHelpText, isRTL && styles.textRight]}>
+          {isRTL
+            ? 'يمكنك إنشاء وإدارة عدة قواعد بيانات (مثل: المتجر الرئيسي، المخزن، أرشيف سنة ماضية) والتبديل بينها بنقرة واحدة مع مزامنة الإعدادات تلقائياً عبر Firebase.'
+            : 'Gérez plusieurs bases D1 indépendantes (ex: Magasin Principal, Dépôt, Archives) et basculez instantanément de l\'une à l\'autre. Toutes les configurations sont sauvegardées sur Firebase.'}
+        </Text>
+
+        {(!databasesList || databasesList.length === 0) ? (
+          <View style={styles.emptyDbBox}>
+            <Text style={styles.emptyDbText}>
+              {isRTL ? 'قاعدة البيانات الافتراضية نشطة' : 'Une base par défaut est actuellement configurée.'}
+            </Text>
+          </View>
+        ) : (
+          databasesList.map((db) => {
+            const isActive = db.id === activeDatabaseId || (!activeDatabaseId && db.id === 'default');
+            const isTestingThis = testingDbId === db.id;
+            return (
+              <View
+                key={db.id}
+                style={[
+                  styles.dbCardItem,
+                  isActive && styles.dbCardItemActive,
+                  isRTL && { alignItems: 'flex-end' },
+                ]}
+              >
+                <View style={[styles.dbCardTopRow, isRTL && styles.rowReverse]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                    <Ionicons
+                      name="server"
+                      size={18}
+                      color={isActive ? '#7c3aed' : '#64748b'}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={[styles.dbCardName, isActive && { color: '#7c3aed' }]}>
+                      {db.name}
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={styles.dbTypePill}>
+                      <Text style={styles.dbTypePillText}>
+                        {db.type === 'worker' ? 'Cloudflare Worker' : 'Direct REST API'}
+                      </Text>
+                    </View>
+                    {isActive ? (
+                      <View style={styles.activePill}>
+                        <Ionicons name="checkmark-circle" size={12} color="#059669" />
+                        <Text style={styles.activePillText}>{isRTL ? 'نشطة' : 'Active'}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+
+                {db.workerUrl ? (
+                  <Text style={styles.dbDetailText} numberOfLines={1}>
+                    🔗 {db.workerUrl}
+                  </Text>
+                ) : db.databaseId ? (
+                  <Text style={styles.dbDetailText} numberOfLines={1}>
+                    🆔 {db.databaseId}
+                  </Text>
+                ) : null}
+
+                {/* Actions row */}
+                <View style={[styles.dbActionsRow, isRTL && styles.rowReverse]}>
+                  {!isActive && (
+                    <TouchableOpacity
+                      style={[styles.dbActionBtn, { backgroundColor: '#7c3aed' }]}
+                      onPress={() => handleSwitchDatabase(db.id)}
+                    >
+                      <Ionicons name="swap-horizontal" size={14} color="#ffffff" />
+                      <Text style={styles.dbActionBtnText}>{isRTL ? 'تفعيل' : 'Activer'}</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.dbActionBtn, { backgroundColor: '#f1f5f9' }]}
+                    onPress={() => handleTestSpecificDatabase(db)}
+                    disabled={isTestingThis}
+                  >
+                    {isTestingThis ? (
+                      <ActivityIndicator size="small" color="#475569" />
+                    ) : (
+                      <>
+                        <Ionicons name="pulse" size={14} color="#475569" />
+                        <Text style={[styles.dbActionBtnText, { color: '#475569' }]}>
+                          {isRTL ? 'فحص' : 'Tester'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.dbActionBtn, { backgroundColor: '#f8fafc' }]}
+                    onPress={() => handleOpenEditDatabase(db)}
+                  >
+                    <Ionicons name="pencil" size={14} color="#0284c7" />
+                    <Text style={[styles.dbActionBtnText, { color: '#0284c7' }]}>
+                      {isRTL ? 'تعديل' : 'Modifier'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {db.id !== 'default' && (
+                    <TouchableOpacity
+                      style={[styles.dbActionBtn, { backgroundColor: '#fef2f2' }]}
+                      onPress={() => handleDeleteDatabase(db.id)}
+                    >
+                      <Ionicons name="trash-outline" size={14} color="#dc2626" />
+                      <Text style={[styles.dbActionBtnText, { color: '#dc2626' }]}>
+                        {isRTL ? 'حذف' : 'Supprimer'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            );
+          })
+        )}
       </View>
 
       {/* Store Information Section */}
@@ -1174,6 +1542,111 @@ export default function SettingsScreen() {
               <TouchableOpacity style={styles.submitUserBtn} onPress={handleAddUser}>
                 <Text style={styles.submitUserBtnText}>
                   {isRTL ? 'حفظ المستخدم في جدول users' : 'Enregistrer dans la table users'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add / Edit Database Modal */}
+      <Modal visible={addDbModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <Text style={styles.modalTitle}>
+                {editingDbId
+                  ? (isRTL ? 'تعديل قاعدة البيانات' : 'Modifier la base de données')
+                  : (isRTL ? 'إضافة قاعدة بيانات جديدة' : 'Ajouter une nouvelle base D1')}
+              </Text>
+              <TouchableOpacity onPress={() => setAddDbModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                {isRTL ? 'اسم القاعدة (مثال: المتجر الرئيسي)' : 'Nom de la base (ex: Magasin 2, Stock Central)'}
+              </Text>
+              <TextInput
+                style={[styles.inputBox, isRTL && styles.textRight]}
+                value={dbFormName}
+                onChangeText={setDbFormName}
+                placeholder="Nom du magasin / Base D1"
+              />
+
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                {isRTL ? 'طريقة الاتصال' : 'Mode de connexion'}
+              </Text>
+              <View style={[styles.roleSelectRow, isRTL && styles.rowReverse]}>
+                <TouchableOpacity
+                  style={[styles.roleChip, dbFormType === 'worker' && styles.roleChipActive]}
+                  onPress={() => setDbFormType('worker')}
+                >
+                  <Text style={[styles.roleChipText, dbFormType === 'worker' && styles.roleChipTextActive]}>
+                    Cloudflare Worker ({isRTL ? 'موصى به' : 'Recommandé'})
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.roleChip, dbFormType === 'direct' && styles.roleChipActive]}
+                  onPress={() => setDbFormType('direct')}
+                >
+                  <Text style={[styles.roleChipText, dbFormType === 'direct' && styles.roleChipTextActive]}>
+                    REST Direct
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {dbFormType === 'worker' ? (
+                <>
+                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                    URL Worker Cloudflare
+                  </Text>
+                  <TextInput
+                    style={[styles.inputBox, isRTL && styles.textRight]}
+                    value={dbFormWorkerUrl}
+                    onChangeText={setDbFormWorkerUrl}
+                    placeholder="https://shop-manager-d1.votre-nom.workers.dev"
+                    autoCapitalize="none"
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Account ID</Text>
+                  <TextInput
+                    style={[styles.inputBox, isRTL && styles.textRight]}
+                    value={dbFormAccountId}
+                    onChangeText={setDbFormAccountId}
+                    placeholder="ex: a1b2c3d4e5f6..."
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Database ID (UUID)</Text>
+                  <TextInput
+                    style={[styles.inputBox, isRTL && styles.textRight]}
+                    value={dbFormDatabaseId}
+                    onChangeText={setDbFormDatabaseId}
+                    placeholder="ex: 12345678-abcd-ef01-2345-6789abcdef01"
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare API Token</Text>
+                  <TextInput
+                    style={[styles.inputBox, isRTL && styles.textRight]}
+                    value={dbFormApiToken}
+                    onChangeText={setDbFormApiToken}
+                    placeholder="ex: token_d1_..."
+                    secureTextEntry
+                    autoCapitalize="none"
+                  />
+                </>
+              )}
+
+              <TouchableOpacity style={styles.submitUserBtn} onPress={handleSaveDatabase}>
+                <Text style={styles.submitUserBtnText}>
+                  {editingDbId
+                    ? (isRTL ? 'حفظ التعديلات' : 'Enregistrer les modifications')
+                    : (isRTL ? 'إضافة وحفظ في Firebase' : 'Ajouter & Enregistrer sur Firebase')}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
@@ -1815,5 +2288,198 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#065f46',
     marginLeft: 4,
+  },
+  // Latency & CORS styles
+  latencyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: theme.borderRadius.full,
+    marginRight: 4,
+    gap: 4,
+  },
+  latencyBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#059669',
+  },
+  corsAlertBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: theme.borderRadius.md,
+    padding: 10,
+    marginBottom: 12,
+  },
+  corsAlertTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#b45309',
+    marginBottom: 2,
+  },
+  corsAlertText: {
+    fontSize: 11,
+    color: '#92400e',
+    lineHeight: 15,
+  },
+  // Auto-Sync styles
+  autoSyncBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.full,
+    gap: 6,
+  },
+  autoSyncBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  autoSyncMetricsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginVertical: 12,
+  },
+  metricCol: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginTop: 4,
+  },
+  metricLabel: {
+    fontSize: 10,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  lastSyncInfoText: {
+    fontSize: 11,
+    color: '#64748b',
+    marginBottom: 12,
+  },
+  manualSyncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0284c7',
+    paddingVertical: 10,
+    borderRadius: theme.borderRadius.md,
+  },
+  manualSyncBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  // Multi-Databases styles
+  addDbHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#7c3aed',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: theme.borderRadius.full,
+    gap: 4,
+  },
+  addDbHeaderBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  emptyDbBox: {
+    padding: 16,
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: theme.borderRadius.md,
+  },
+  emptyDbText: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  dbCardItem: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
+    marginBottom: 10,
+  },
+  dbCardItemActive: {
+    borderColor: '#7c3aed',
+    borderWidth: 1.5,
+    backgroundColor: '#faf5ff',
+  },
+  dbCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  dbCardName: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1e293b',
+  },
+  dbTypePill: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  dbTypePillText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  activePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    gap: 3,
+  },
+  activePillText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#059669',
+  },
+  dbDetailText: {
+    fontSize: 11,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  dbActionsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+  },
+  dbActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+  },
+  dbActionBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#ffffff',
   },
 });
