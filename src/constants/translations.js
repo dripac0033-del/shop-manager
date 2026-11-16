@@ -293,6 +293,20 @@ export const translations = {
     bookmarkletTitle: "Script Automatique pour Navigateur (Chrome / Edge)",
     bookmarkletDesc: "Ajoutez ce bookmarklet à vos favoris : lorsque vous achetez un code sur le site fournisseur, cliquez dessus pour l'envoyer instantanément à votre application via Webhook !",
 
+    // Intégration Fournisseur Headless & Achat Automatisé
+    iptvSupplierSettings: "Fournisseur IPTV & Achat Automatisé (Headless)",
+    iptvSupplierUrl: "URL / Lien du site fournisseur (HTTP/HTTPS)",
+    iptvSupplierUsername: "Nom d'utilisateur fournisseur",
+    iptvSupplierPassword: "Mot de passe fournisseur",
+    iptvSupplierApiKey: "Clé API / Clé Revendeur (Optionnel)",
+    iptvSupplierSaved: "✅ Identifiants fournisseur sauvegardés sur Firebase !",
+    headlessSystemTitle: "Système d'Achat Automatisé & Captcha Combiné",
+    headlessSystemDesc: "Intégration e-commerce headless avec authentification assistée. Vos identifiants sont injectés automatiquement, vous validez le Captcha en 1 clic, et les commandes achetées sont immédiatement interceptées et importées dans votre stock.",
+    launchSupplierSession: "🚀 Lancer la Session Fournisseur",
+    automatedScriptCopy: "Copier le Script d'Automatisation (Tampermonkey / Chrome)",
+    scriptCopied: "✅ Script copié dans le presse-papier !",
+    iptvWebhookLive: "Écouteur Webhook actif : Prêt à recevoir vos achats",
+
     // Multi-Bases de données
     multiDatabases: "Gestion Multi-Bases de Données",
     multiDatabasesDesc: "Ajoutez et basculez facilement entre plusieurs bases Cloudflare D1 ou Workers.",
@@ -609,6 +623,20 @@ export const translations = {
     smartParserDesc: "الصق هنا أي نص أو سطر إكستريم / كود منسوخ من موقع المورد: التطبيق يكتشف السيرفر والبيانات وتاريخ الانتهاء تلقائياً!",
     bookmarkletTitle: "سكريبت المتصفح التلقائي (Chrome / Edge)",
     bookmarkletDesc: "أضف هذا السكريبت إلى إشارات متصفحك: بمجرد شراء كود من موقع المورد، اضغط عليه ليتم إرساله فوراً إلى تطبيقك عبر Webhook!",
+
+    // ربط المزود Headless والشراء الآلي
+    iptvSupplierSettings: "مزود IPTV ونظام الشراء الآلي (Headless)",
+    iptvSupplierUrl: "رابط موقع المزود (HTTP/HTTPS)",
+    iptvSupplierUsername: "اسم المستخدم لدى المزود",
+    iptvSupplierPassword: "كلمة المرور لدى المزود",
+    iptvSupplierApiKey: "مفتاح API الموزع (اختياري)",
+    iptvSupplierSaved: "✅ تم حفظ بيانات المزود على فايربيس بنجاح!",
+    headlessSystemTitle: "نظام الشراء الآلي والكابتشا المدمجة (Headless)",
+    headlessSystemDesc: "ربط تجارة إلكترونية متقدم مع تسجيل دخول مساعد. تُملأ بياناتك تلقائياً وتحل الكابتشا بنقرة واحدة، ليتم فوراً التقاط الأكواد المشتراة وتخزينها في مخزونك دون أي فقدان للبيانات.",
+    launchSupplierSession: "🚀 بدء جلسة الشراء الآلية",
+    automatedScriptCopy: "نسخ سكريبت الأتمتة (Tampermonkey / Chrome)",
+    scriptCopied: "✅ تم نسخ سكريبت الأتمتة إلى الحافظة!",
+    iptvWebhookLive: "مستمع الويب هوك نشط : جاهز لاستقبال المشتريات",
 
     // Multi-Bases de données
     multiDatabases: "إدارة قواعد البيانات المتعددة",

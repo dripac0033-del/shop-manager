@@ -78,6 +78,10 @@ export default function SettingsScreen() {
     // Real-Time Auto Sync
     syncMetrics,
     runAutoSync,
+    // IPTV Supplier & Headless Automated Purchasing
+    iptvSupplierConfig,
+    saveIptvSupplierConfig,
+    openSupplierSession,
   } = useApp();
 
   const [name, setName] = useState(storeInfo.name || '');
@@ -120,6 +124,23 @@ export default function SettingsScreen() {
   const [newUserUsername, setNewUserUsername] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState('cashier'); // 'admin' | 'cashier' | 'technician'
+
+  // IPTV Supplier Form Fields in Settings
+  const [settingSupUrl, setSettingSupUrl] = useState(iptvSupplierConfig?.url || '');
+  const [settingSupUser, setSettingSupUser] = useState(iptvSupplierConfig?.username || '');
+  const [settingSupPass, setSettingSupPass] = useState(iptvSupplierConfig?.password || '');
+  const [settingSupServer, setSettingSupServer] = useState(iptvSupplierConfig?.defaultServerName || '');
+  const [settingShowSupPass, setSettingShowSupPass] = useState(false);
+  const [savingSettingSup, setSavingSettingSup] = useState(false);
+
+  useEffect(() => {
+    if (iptvSupplierConfig) {
+      if (iptvSupplierConfig.url) setSettingSupUrl(iptvSupplierConfig.url);
+      if (iptvSupplierConfig.username) setSettingSupUser(iptvSupplierConfig.username);
+      if (iptvSupplierConfig.password) setSettingSupPass(iptvSupplierConfig.password);
+      if (iptvSupplierConfig.defaultServerName) setSettingSupServer(iptvSupplierConfig.defaultServerName);
+    }
+  }, [iptvSupplierConfig]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -391,6 +412,27 @@ export default function SettingsScreen() {
       Alert.alert('Erreur Synchro', err.message);
     } finally {
       setAutoSyncRunning(false);
+    }
+  };
+
+  const handleSaveSettingSupplierConfig = async () => {
+    setSavingSettingSup(true);
+    try {
+      await saveIptvSupplierConfig({
+        url: settingSupUrl.trim(),
+        username: settingSupUser.trim(),
+        password: settingSupPass.trim(),
+        defaultServerName: settingSupServer.trim(),
+      });
+      showToast(
+        isRTL
+          ? '✅ تم حفظ بيانات مزود IPTV على فايربيس بنجاح'
+          : '✅ Identifiants fournisseur IPTV enregistrés sur Firebase !'
+      );
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setSavingSettingSup(false);
     }
   };
 
@@ -1338,6 +1380,105 @@ export default function SettingsScreen() {
             );
           })
         )}
+      </View>
+
+      {/* IPTV Supplier & Headless Automated Purchasing Section */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse, { marginTop: 24 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="hardware-chip-outline" size={20} color="#7c3aed" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>
+            {t('iptvSupplierSettings') || (isRTL ? 'مزود IPTV والشراء الآلي' : 'Fournisseur IPTV & Achat Automatisé')}
+          </Text>
+        </View>
+        <View style={[styles.statusPill, { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' }]}>
+          <Ionicons name="lock-closed" size={12} color="#059669" />
+          <Text style={[styles.statusPillText, { color: '#059669', fontSize: 10, marginLeft: 3 }]}>
+            Firebase Encrypted
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.cardHelpText, isRTL && styles.textRight]}>
+          {isRTL
+            ? 'احفظ رابط ومستخدم وكلمة مرور موقع مزود IPTV. تُحفظ هذه البيانات الحساسة حصرياً على Firebase Firestore وتستخدم في نظام الشراء الآلي والكابتشا المدمجة دون فقدان أي بيانات.'
+            : 'Enregistrez le lien HTTP, l\'identifiant et le mot de passe de votre site fournisseur IPTV. Ces données personnelles sont stockées strictement sur Firebase Firestore et permettent d\'alimenter le système d\'achat automatisé.'}
+        </Text>
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+          {t('iptvSupplierUrl') || 'URL / Lien HTTP du portail fournisseur'} *
+        </Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={settingSupUrl}
+          onChangeText={setSettingSupUrl}
+          placeholder="https://panel.fournisseur-iptv.com ou http://..."
+          autoCapitalize="none"
+        />
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+          {t('iptvSupplierUsername') || 'Nom d\'utilisateur fournisseur'} *
+        </Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={settingSupUser}
+          onChangeText={setSettingSupUser}
+          placeholder="ex: revendeur_iptv"
+          autoCapitalize="none"
+        />
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+          {t('iptvSupplierPassword') || 'Mot de passe fournisseur'} *
+        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', position: 'relative' }}>
+          <TextInput
+            style={[styles.inputBox, { flex: 1, marginBottom: 0 }, isRTL && styles.textRight]}
+            value={settingSupPass}
+            onChangeText={setSettingSupPass}
+            placeholder="••••••••••••"
+            secureTextEntry={!settingShowSupPass}
+            autoCapitalize="none"
+          />
+          <TouchableOpacity
+            style={{ position: 'absolute', right: 12, padding: 4 }}
+            onPress={() => setSettingShowSupPass(!settingShowSupPass)}
+          >
+            <Ionicons
+              name={settingShowSupPass ? 'eye-off-outline' : 'eye-outline'}
+              size={20}
+              color="#64748b"
+            />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[styles.inputLabel, isRTL && styles.textRight, { marginTop: 12 }]}>
+          {isRTL ? 'اسم السيرفر الافتراضي' : 'Nom du serveur par défaut'}
+        </Text>
+        <TextInput
+          style={[styles.inputBox, isRTL && styles.textRight]}
+          value={settingSupServer}
+          onChangeText={setSettingSupServer}
+          placeholder="ex: Mega OTT / Trex / Strong 8K"
+        />
+
+        <View style={[styles.testBtnRow, isRTL && styles.rowReverse, { marginTop: 14 }]}>
+          <TouchableOpacity
+            style={[styles.saveConfBtn, { flex: 1 }]}
+            onPress={handleSaveSettingSupplierConfig}
+            disabled={savingSettingSup}
+          >
+            {savingSettingSup ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={18} color="#ffffff" />
+                <Text style={styles.saveConfBtnText}>
+                  {isRTL ? 'حفظ في Firebase' : 'Enregistrer sur Firebase'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Store Information Section */}

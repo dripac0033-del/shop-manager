@@ -126,6 +126,14 @@ import {
   DEFAULT_CLOUDFLARE_CONFIG,
   DEFAULT_DATABASE_PROFILE,
 } from '../services/cloudflare';
+import {
+  getStoredIptvSupplierConfig,
+  saveStoredIptvSupplierConfig,
+  subscribeToSupplierConfig,
+  launchSupplierPortal,
+  generateHeadlessAutomationScript,
+  DEFAULT_SUPPLIER_CONFIG,
+} from '../services/iptvAutomation';
 
 const AppContext = createContext();
 
@@ -205,6 +213,7 @@ export const AppProvider = ({ children }) => {
 
   // IPTV & Server Subscriptions Stock State
   const [iptvCodes, setIptvCodes] = useState([]);
+  const [iptvSupplierConfig, setIptvSupplierConfig] = useState(DEFAULT_SUPPLIER_CONFIG);
 
   // Auto-Sync Metrics State (Tracks data sent & received in real-time)
   const [syncMetrics, setSyncMetrics] = useState({
@@ -375,6 +384,14 @@ export const AppProvider = ({ children }) => {
           }
         } catch (dbsErr) {
           console.warn('Could not load databases list:', dbsErr);
+        }
+
+        // Hydrate IPTV Supplier Credentials & Headless Purchasing Config
+        try {
+          const supConf = await getStoredIptvSupplierConfig();
+          if (supConf) setIptvSupplierConfig(supConf);
+        } catch (supErr) {
+          console.warn('Could not load IPTV supplier config:', supErr);
         }
 
         // Initialize Firebase (User Accounts & Auth)
@@ -720,6 +737,7 @@ export const AppProvider = ({ children }) => {
     let unsubCloudflareConfig = () => {};
     let unsubDatabasesList = () => {};
     let unsubIptv = () => {};
+    let unsubSupplier = () => {};
 
     const handleSubError = (err) => {
       console.warn('Real-time listener error:', err);
@@ -865,6 +883,13 @@ export const AppProvider = ({ children }) => {
           saveState('@store_iptv_codes', remoteCodes);
         }
       }, handleSubError);
+
+      // Synchronize IPTV Supplier Credentials & Headless Purchasing Config from Firebase
+      unsubSupplier = subscribeToSupplierConfig((remoteSupplier) => {
+        if (remoteSupplier && (remoteSupplier.url || remoteSupplier.username)) {
+          setIptvSupplierConfig(remoteSupplier);
+        }
+      });
     } catch (e) {
       console.warn('Real-time sync subscription error:', e);
     }
@@ -883,6 +908,7 @@ export const AppProvider = ({ children }) => {
       unsubCloudflareConfig();
       unsubDatabasesList();
       unsubIptv();
+      unsubSupplier();
     };
   }, [firebaseConnected]);
 
@@ -2211,6 +2237,32 @@ export const AppProvider = ({ children }) => {
   };
 
   // ==============================================================
+  // IPTV SUPPLIER & HEADLESS AUTOMATED PURCHASING ENGINE
+  // ==============================================================
+
+  const saveIptvSupplierConfig = async (newConfig) => {
+    touchActivity();
+    const updated = await saveStoredIptvSupplierConfig(newConfig);
+    setIptvSupplierConfig(updated);
+    return updated;
+  };
+
+  const openSupplierSession = async () => {
+    touchActivity();
+    if (!iptvSupplierConfig.url) {
+      throw new Error('Veuillez d\'abord renseigner le lien HTTP/HTTPS du site fournisseur dans la configuration.');
+    }
+    return launchSupplierPortal(iptvSupplierConfig.url);
+  };
+
+  const getSupplierAutomationScript = () => {
+    const webhookUrl = cloudflareConfig?.workerUrl
+      ? `${cloudflareConfig.workerUrl.replace(/\/+$/, '')}/api/iptv`
+      : '';
+    return generateHeadlessAutomationScript(iptvSupplierConfig, webhookUrl);
+  };
+
+  // ==============================================================
   // MULTI-DATABASES MANAGEMENT (Supports Multiple D1 / Workers)
   // ==============================================================
 
@@ -2702,6 +2754,12 @@ export const AppProvider = ({ children }) => {
         deleteIptvCode,
         assignIptvCodeToCustomer,
         parseAndImportIptvText,
+
+        // IPTV Supplier & Headless Automated Purchasing
+        iptvSupplierConfig,
+        saveIptvSupplierConfig,
+        openSupplierSession,
+        getSupplierAutomationScript,
 
         // Real-Time Auto-Sync Engine
         syncMetrics,

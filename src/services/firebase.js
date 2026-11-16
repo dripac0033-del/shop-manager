@@ -569,6 +569,53 @@ export async function fetchDatabasesListFromFirebase() {
   return null;
 }
 
+// IPTV Supplier Credentials & Headless Purchasing Config (Stored securely in Firebase Firestore)
+export async function saveIptvSupplierConfigToFirebase(config) {
+  if (!dbInstance) return null;
+  try {
+    const supRef = doc(dbInstance, 'settings', 'iptv_supplier');
+    await setDoc(supRef, sanitizeDoc({
+      ...config,
+      updatedAt: new Date().toISOString(),
+    }), { merge: true });
+    return { success: true };
+  } catch (err) {
+    console.warn('Failed to save IPTV supplier config to Firebase:', err);
+    throw err;
+  }
+}
+
+export async function fetchIptvSupplierConfigFromFirebase() {
+  if (!dbInstance) return null;
+  try {
+    const supRef = doc(dbInstance, 'settings', 'iptv_supplier');
+    const snap = await getDoc(supRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch IPTV supplier config from Firebase:', err);
+  }
+  return null;
+}
+
+export function subscribeToIptvSupplierConfigFromFirebase(callback) {
+  if (!dbInstance) return () => {};
+  try {
+    const supRef = doc(dbInstance, 'settings', 'iptv_supplier');
+    return onSnapshot(supRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback(docSnap.data());
+      }
+    }, (err) => {
+      console.warn('IPTV supplier config subscription error:', err);
+    });
+  } catch (err) {
+    console.warn('Failed to setup IPTV supplier config subscription:', err);
+    return () => {};
+  }
+}
+
 // IPTV & Servers Codes
 export async function saveIptvCodeToFirebase(code) {
   return saveItemToCollection('iptv_codes', code);

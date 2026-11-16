@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
@@ -32,6 +33,10 @@ export default function IPTVStockScreen() {
     cloudflareConfig,
     refreshAllFromCloudflare,
     syncMetrics,
+    iptvSupplierConfig,
+    saveIptvSupplierConfig,
+    openSupplierSession,
+    getSupplierAutomationScript,
   } = useApp();
 
   // Search & Filter States
@@ -54,6 +59,26 @@ export default function IPTVStockScreen() {
 
   const [supplierModalVisible, setSupplierModalVisible] = useState(false);
   const [bookmarkletModalVisible, setBookmarkletModalVisible] = useState(false);
+
+  // Supplier Portal & Headless Purchasing State
+  const [supplierTab, setSupplierTab] = useState('config'); // 'config' | 'system' | 'script'
+  const [supUrl, setSupUrl] = useState(iptvSupplierConfig?.url || '');
+  const [supUser, setSupUser] = useState(iptvSupplierConfig?.username || '');
+  const [supPass, setSupPass] = useState(iptvSupplierConfig?.password || '');
+  const [supApiKey, setSupApiKey] = useState(iptvSupplierConfig?.apiKey || '');
+  const [supServer, setSupServer] = useState(iptvSupplierConfig?.defaultServerName || '');
+  const [showSupPass, setShowSupPass] = useState(false);
+  const [savingSup, setSavingSup] = useState(false);
+
+  useEffect(() => {
+    if (iptvSupplierConfig) {
+      if (iptvSupplierConfig.url) setSupUrl(iptvSupplierConfig.url);
+      if (iptvSupplierConfig.username) setSupUser(iptvSupplierConfig.username);
+      if (iptvSupplierConfig.password) setSupPass(iptvSupplierConfig.password);
+      if (iptvSupplierConfig.apiKey) setSupApiKey(iptvSupplierConfig.apiKey);
+      if (iptvSupplierConfig.defaultServerName) setSupServer(iptvSupplierConfig.defaultServerName);
+    }
+  }, [iptvSupplierConfig]);
 
   // Form fields for Add/Edit
   const [formServerName, setFormServerName] = useState('Trex IPTV');
@@ -184,6 +209,54 @@ export default function IPTVStockScreen() {
       if (typeof window !== 'undefined') window.open(url, '_blank');
     } else {
       Linking.openURL(url).catch(() => Alert.alert('WhatsApp', 'Impossible d\'ouvrir WhatsApp'));
+    }
+  };
+
+  // Supplier Portal Handlers (Strictly Firebase Saved)
+  const handleSaveSupplierConfig = async () => {
+    setSavingSup(true);
+    try {
+      await saveIptvSupplierConfig({
+        url: supUrl.trim(),
+        username: supUser.trim(),
+        password: supPass.trim(),
+        apiKey: supApiKey.trim(),
+        defaultServerName: supServer.trim(),
+      });
+      Alert.alert(
+        isRTL ? 'تم الحفظ' : 'Succès',
+        isRTL
+          ? '✅ تم حفظ بيانات الدخول للمزود على فايربيس بنجاح!'
+          : '✅ Identifiants du portail fournisseur sauvegardés sur Firebase !'
+      );
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
+    } finally {
+      setSavingSup(false);
+    }
+  };
+
+  const handleLaunchSupplierSession = async () => {
+    try {
+      if (!supUrl.trim()) {
+        Alert.alert(
+          'Information',
+          isRTL
+            ? 'يرجى إدخال رابط المزود أولاً في الإعدادات.'
+            : 'Veuillez renseigner le lien HTTP/HTTPS du fournisseur avant de lancer la session.'
+        );
+        return;
+      }
+      await saveIptvSupplierConfig({
+        url: supUrl.trim(),
+        username: supUser.trim(),
+        password: supPass.trim(),
+        apiKey: supApiKey.trim(),
+        defaultServerName: supServer.trim(),
+      });
+      await openSupplierSession();
+    } catch (err) {
+      Alert.alert('Erreur', err.message);
     }
   };
 
@@ -409,11 +482,13 @@ export default function IPTVStockScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.actionBtnSecondary}
+          style={[styles.actionBtnSecondary, { borderColor: '#7c3aed', backgroundColor: '#faf5ff' }]}
           onPress={() => setSupplierModalVisible(true)}
         >
-          <Ionicons name="shield-checkmark-outline" size={17} color={theme.colors.primary} />
-          <Text style={styles.actionBtnSecondaryText}>{t('supplierPortal')}</Text>
+          <Ionicons name="hardware-chip-outline" size={17} color="#7c3aed" />
+          <Text style={[styles.actionBtnSecondaryText, { color: '#7c3aed', fontWeight: 'bold' }]}>
+            {isRTL ? '🤖 المزود والشراء الآلي' : '🤖 Fournisseur & Achat Automatisé'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -1028,57 +1103,260 @@ export default function IPTVStockScreen() {
       </Modal>
 
       {/* ============================================================== */}
-      {/* MODAL 4: SUPPLIER PORTAL & CAPTCHA ARCHITECTURE                */}
+      {/* MODAL 4: SUPPLIER PORTAL & HEADLESS AUTOMATED PURCHASING       */}
       {/* ============================================================== */}
       <Modal visible={supplierModalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
+          <View style={[styles.modalBox, { maxWidth: 640 }]}>
             <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
-              <Text style={styles.modalTitle}>🌐 {t('supplierHelpTitle')}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="hardware-chip-outline" size={22} color="#7c3aed" style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>
+                  {t('iptvSupplierSettings') || 'Fournisseur IPTV & Achat Automatisé'}
+                </Text>
+              </View>
               <TouchableOpacity onPress={() => setSupplierModalVisible(false)}>
                 <Ionicons name="close" size={24} color={theme.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalScroll}>
-              <View style={styles.supplierCard}>
-                <Ionicons name="shield-checkmark" size={32} color="#8b5cf6" style={{ marginBottom: 8 }} />
-                <Text style={styles.supplierHeadline}>Solution de Connexion Professionnelle & Zéro Perte</Text>
-                <Text style={styles.supplierText}>
-                  {t('supplierHelpText')}
+            {/* Sub-tabs header */}
+            <View style={[styles.supplierSubTabsRow, isRTL && styles.rowReverse]}>
+              <TouchableOpacity
+                style={[styles.supplierSubTab, supplierTab === 'config' && styles.supplierSubTabActive]}
+                onPress={() => setSupplierTab('config')}
+              >
+                <Ionicons name="key-outline" size={15} color={supplierTab === 'config' ? '#7c3aed' : '#64748b'} />
+                <Text style={[styles.supplierSubTabText, supplierTab === 'config' && styles.supplierSubTabTextActive]}>
+                  {isRTL ? 'بيانات الدخول (Firebase)' : '1. Identifiants Firebase'}
                 </Text>
+              </TouchableOpacity>
 
-                <View style={styles.stepBox}>
-                  <Text style={styles.stepNum}>Étape 1</Text>
-                  <Text style={styles.stepDesc}>Connectez-vous à votre portail fournisseur et résolvez le Captcha.</Text>
-                </View>
+              <TouchableOpacity
+                style={[styles.supplierSubTab, supplierTab === 'system' && styles.supplierSubTabActive]}
+                onPress={() => setSupplierTab('system')}
+              >
+                <Ionicons name="flash-outline" size={15} color={supplierTab === 'system' ? '#7c3aed' : '#64748b'} />
+                <Text style={[styles.supplierSubTabText, supplierTab === 'system' && styles.supplierSubTabTextActive]}>
+                  {isRTL ? 'الشراء والكابتشا' : '2. Achat & Captcha Combiné'}
+                </Text>
+              </TouchableOpacity>
 
-                <View style={styles.stepBox}>
-                  <Text style={styles.stepNum}>Étape 2</Text>
-                  <Text style={styles.stepDesc}>Achetez votre code ou abonnement IPTV.</Text>
-                </View>
+              <TouchableOpacity
+                style={[styles.supplierSubTab, supplierTab === 'script' && styles.supplierSubTabActive]}
+                onPress={() => setSupplierTab('script')}
+              >
+                <Ionicons name="code-working-outline" size={15} color={supplierTab === 'script' ? '#7c3aed' : '#64748b'} />
+                <Text style={[styles.supplierSubTabText, supplierTab === 'script' && styles.supplierSubTabTextActive]}>
+                  {isRTL ? 'سكريبت الأتمتة' : '3. Script Navigateur'}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-                <View style={styles.stepBox}>
-                  <Text style={styles.stepNum}>Étape 3</Text>
-                  <Text style={styles.stepDesc}>
-                    Cliquez sur "Coller & Détecter" dans l'application, ou utilisez notre Bookmarklet Chrome en 1 clic pour envoyer directement le code dans votre Cloudflare D1 !
+            <ScrollView style={styles.modalScroll}>
+              {supplierTab === 'config' && (
+                <View style={{ paddingVertical: 4 }}>
+                  <View style={styles.firebasePrivateBox}>
+                    <Ionicons name="lock-closed" size={16} color="#059669" />
+                    <Text style={styles.firebasePrivateText}>
+                      {isRTL
+                        ? '🔒 معلوماتك الشخصية وبيانات الدخول للمزود مشفرة ومحفوظة حصرياً في Firebase Firestore.'
+                        : '🔒 Vos informations personnelles et identifiants du fournisseur sont enregistrés strictement sur Firebase Firestore.'}
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {t('iptvSupplierUrl') || 'URL / Lien du site fournisseur (HTTP/HTTPS)'} *
                   </Text>
+                  <TextInput
+                    style={[styles.formInput, isRTL && styles.textRight]}
+                    value={supUrl}
+                    onChangeText={setSupUrl}
+                    placeholder="ex: https://panel.mon-fournisseur.com ou http://192.168.1.1..."
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {t('iptvSupplierUsername') || 'Nom d\'utilisateur (Username)'} *
+                  </Text>
+                  <TextInput
+                    style={[styles.formInput, isRTL && styles.textRight]}
+                    value={supUser}
+                    onChangeText={setSupUser}
+                    placeholder="ex: revendeur_algerie"
+                    autoCapitalize="none"
+                  />
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {t('iptvSupplierPassword') || 'Mot de passe (Password)'} *
+                  </Text>
+                  <View style={styles.passInputContainer}>
+                    <TextInput
+                      style={[styles.formInput, { flex: 1, marginBottom: 0 }, isRTL && styles.textRight]}
+                      value={supPass}
+                      onChangeText={setSupPass}
+                      placeholder="••••••••••••"
+                      secureTextEntry={!showSupPass}
+                      autoCapitalize="none"
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeBtn}
+                      onPress={() => setShowSupPass(!showSupPass)}
+                    >
+                      <Ionicons
+                        name={showSupPass ? 'eye-off-outline' : 'eye-outline'}
+                        size={20}
+                        color="#64748b"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight, { marginTop: 10 }]}>
+                    {isRTL ? 'اسم السيرفر الافتراضي' : 'Nom du serveur par défaut'}
+                  </Text>
+                  <TextInput
+                    style={[styles.formInput, isRTL && styles.textRight]}
+                    value={supServer}
+                    onChangeText={setSupServer}
+                    placeholder="ex: Mega OTT / Trex / Strong 8K"
+                  />
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {t('iptvSupplierApiKey') || 'Clé API Revendeur (Optionnel si panel Xtream / ZapX)'}
+                  </Text>
+                  <TextInput
+                    style={[styles.formInput, isRTL && styles.textRight]}
+                    value={supApiKey}
+                    onChangeText={setSupApiKey}
+                    placeholder="ex: key_abc123..."
+                    autoCapitalize="none"
+                  />
+
+                  <TouchableOpacity
+                    style={[styles.saveSupBtn, savingSup && { opacity: 0.7 }]}
+                    onPress={handleSaveSupplierConfig}
+                    disabled={savingSup}
+                  >
+                    {savingSup ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <>
+                        <Ionicons name="save-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={styles.saveSupBtnText}>
+                          {isRTL ? 'حفظ البيانات في Firebase' : 'Enregistrer sur Firebase Firestore'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 </View>
-              </View>
+              )}
+
+              {supplierTab === 'system' && (
+                <View style={{ paddingVertical: 4 }}>
+                  <View style={styles.headlessHeroBox}>
+                    <Ionicons name="git-network" size={28} color="#7c3aed" style={{ marginBottom: 6 }} />
+                    <Text style={styles.headlessHeroTitle}>
+                      {t('headlessSystemTitle') || 'Système d\'Achat Automatisé & Captcha Combiné'}
+                    </Text>
+                    <Text style={[styles.headlessHeroText, isRTL && styles.textRight]}>
+                      {t('headlessSystemDesc') || 'Intégration e-commerce headless assistée : vos identifiants sont pré-remplis automatiquement, vous résolvez le Captcha anti-robot en un clic, et les codes achetés sont instantanément interceptés et intégrés à votre stock sans aucune perte de données.'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.flowStepsContainer}>
+                    <View style={styles.flowStepRow}>
+                      <View style={[styles.stepCircle, { backgroundColor: '#7c3aed' }]}>
+                        <Text style={styles.stepCircleText}>1</Text>
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={styles.flowStepTitle}>{isRTL ? 'ملء تلقائي للبيانات' : '1. Pré-remplissage Automatique'}</Text>
+                        <Text style={styles.flowStepDesc}>{isRTL ? 'يتم إدخال اسم المستخدم وكلمة المرور فورياً دون إعادة كتابتها.' : 'Vos identifiants enregistrés sur Firebase sont injectés dans les champs.'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.flowStepRow}>
+                      <View style={[styles.stepCircle, { backgroundColor: '#d97706' }]}>
+                        <Text style={styles.stepCircleText}>2</Text>
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={styles.flowStepTitle}>{isRTL ? 'حل الكابتشا المدمجة' : '2. Captcha Combiné (Vérification Humaine)'}</Text>
+                        <Text style={styles.flowStepDesc}>{isRTL ? 'تحل الكابتشا بسهولة بنقرة واحدة لتجاوز حماية الموقع بأمان.' : 'Vous validez le Captcha en 1 seconde pour franchir la sécurité.'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.flowStepRow}>
+                      <View style={[styles.stepCircle, { backgroundColor: '#059669' }]}>
+                        <Text style={styles.stepCircleText}>3</Text>
+                      </View>
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={styles.flowStepTitle}>{isRTL ? 'التقاط الشراء وحفظه في المخزون' : '3. Capture Automatique de la Commande'}</Text>
+                        <Text style={styles.flowStepDesc}>{isRTL ? 'الاشتراك المشترى يرسل فورياً إلى قاعدة بيانات D1 وتطبيقك.' : 'Le code IPTV généré est transmis par Webhook directement dans D1 sans saisie manuelle.'}</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Webhook Endpoint Info */}
+                  <View style={styles.webhookStatusBox}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                      <View style={[styles.statusDot, { backgroundColor: '#059669', marginRight: 6 }]} />
+                      <Text style={styles.webhookStatusTitle}>
+                        {t('iptvWebhookLive') || 'Écouteur Webhook actif : Prêt à recevoir vos achats'}
+                      </Text>
+                    </View>
+                    <Text style={styles.webhookStatusUrl} numberOfLines={1}>
+                      🔗 {cloudflareConfig?.workerUrl ? `${cloudflareConfig.workerUrl.replace(/\/+$/, '')}/api/iptv` : 'https://votre-worker.workers.dev/api/iptv'}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.launchSessionBtn}
+                    onPress={handleLaunchSupplierSession}
+                  >
+                    <Ionicons name="open-outline" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.launchSessionBtnText}>
+                      {t('launchSupplierSession') || '🚀 Lancer la Session Fournisseur & Achat Automatisé'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {supplierTab === 'script' && (
+                <View style={{ paddingVertical: 4 }}>
+                  <Text style={[styles.smartHelpText, isRTL && styles.textRight]}>
+                    {isRTL
+                      ? 'ثبّت سكريبت الأتمتة هذا في متصفحك (عبر إضافة Tampermonkey أو كإشارة في المتصفح). سيقوم تلقائياً بتسجيل الدخول والتقاط أي كود تشتريه!'
+                      : 'Ce script compagnon autonome s\'exécute dans votre navigateur (via l\'extension Tampermonkey ou comme Bookmarklet). Il injecte vos identifiants et capture instantanément vos commandes !'}
+                  </Text>
+
+                  <View style={styles.bookmarkletCodeBox}>
+                    <Text style={styles.bookmarkletCodeText} selectable numberOfLines={10}>
+                      {getSupplierAutomationScript()}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.copyScriptBtn}
+                    onPress={() => copyToClipboard(getSupplierAutomationScript(), 'Script d\'automatisation')}
+                  >
+                    <Ionicons name="copy-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                    <Text style={styles.copyScriptBtnText}>
+                      {t('automatedScriptCopy') || 'Copier le Script d\'Automatisation'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.instructionsContainer}>
+                    <Text style={styles.instTitle}>Comment l'utiliser avec Tampermonkey / Chrome :</Text>
+                    <Text style={styles.instItem}>1. Installez l'extension gratuite Tampermonkey sur Chrome / Edge.</Text>
+                    <Text style={styles.instItem}>2. Cliquez sur "Créer un nouveau script" et collez le code copié ci-dessus.</Text>
+                    <Text style={styles.instItem}>3. Désormais, sur le site de votre fournisseur, vos identifiants sont pré-remplis, et dès que vous achetez un code, il est synchronisé directement dans Shop Manager !</Text>
+                  </View>
+                </View>
+              )}
             </ScrollView>
 
             <View style={styles.modalFooter}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setSupplierModalVisible(false)}>
                 <Text style={styles.cancelBtnText}>{t('close')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveBtn}
-                onPress={() => {
-                  setSupplierModalVisible(false);
-                  setBookmarkletModalVisible(true);
-                }}
-              >
-                <Text style={styles.saveBtnText}>Voir le Bookmarklet Chrome</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1865,5 +2143,170 @@ const styles = StyleSheet.create({
   },
   textRight: {
     textAlign: 'right',
+  },
+  // Headless Supplier & Automated Purchasing Styles
+  supplierSubTabsRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    marginBottom: 12,
+  },
+  supplierSubTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 5,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  supplierSubTabActive: {
+    borderBottomColor: '#7c3aed',
+  },
+  supplierSubTabText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  supplierSubTabTextActive: {
+    color: '#7c3aed',
+    fontWeight: 'bold',
+  },
+  firebasePrivateBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    gap: 8,
+  },
+  firebasePrivateText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#065f46',
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  passInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+    marginBottom: 10,
+  },
+  eyeBtn: {
+    position: 'absolute',
+    right: 12,
+    padding: 4,
+  },
+  saveSupBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+    borderRadius: 8,
+    paddingVertical: 12,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  saveSupBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  headlessHeroBox: {
+    backgroundColor: '#faf5ff',
+    borderWidth: 1,
+    borderColor: '#e9d5ff',
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  headlessHeroTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#6b21a8',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  headlessHeroText: {
+    fontSize: 11.5,
+    color: '#581c87',
+    lineHeight: 17,
+    textAlign: 'center',
+  },
+  flowStepsContainer: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 14,
+    gap: 12,
+  },
+  flowStepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  stepCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  stepCircleText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  flowStepTitle: {
+    fontSize: 12.5,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    marginBottom: 2,
+  },
+  flowStepDesc: {
+    fontSize: 11,
+    color: '#64748b',
+    lineHeight: 15,
+  },
+  webhookStatusBox: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  webhookStatusTitle: {
+    fontSize: 11.5,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  webhookStatusUrl: {
+    fontSize: 11,
+    color: '#475569',
+    marginTop: 2,
+  },
+  launchSessionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#7c3aed',
+    borderRadius: 8,
+    paddingVertical: 12,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  launchSessionBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });
