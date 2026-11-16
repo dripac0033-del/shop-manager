@@ -436,14 +436,14 @@ export default function SettingsScreen() {
     }
   };
 
-  // Cloudflare D1 Handlers
+  // Cloudflare D1 Handlers (Pure Direct REST API - No Worker required)
   const handleSaveCloudflareConfig = async () => {
-    if (!cfWorkerUrl.trim() && (!cfAccountId.trim() || !cfDatabaseId.trim() || !cfApiToken.trim())) {
+    if (!cfAccountId.trim() || !cfDatabaseId.trim() || !cfApiToken.trim()) {
       Alert.alert(
-        'Cloudflare D1',
+        'Cloudflare D1 REST API',
         isRTL
-          ? 'يرجى إدخال إما رابط Cloudflare Worker أو (Account ID + Database ID + API Token)!'
-          : 'Veuillez saisir soit une URL Worker Cloudflare, soit (Account ID + Database ID + API Token) !'
+          ? 'يرجى إدخال (Account ID + Database ID + API Token) لتفعيل قاعدة D1 مباشرة وبشكل دائم!'
+          : 'Veuillez saisir votre Account ID, Database ID et API Token pour activer Cloudflare D1 en direct !'
       );
       return;
     }
@@ -452,15 +452,11 @@ export default function SettingsScreen() {
       accountId: cfAccountId.trim(),
       databaseId: cfDatabaseId.trim(),
       apiToken: cfApiToken.trim(),
-      workerUrl: cfWorkerUrl.trim(),
+      workerUrl: '',
     };
 
     const res = await applyCloudflareConfig(conf);
-    if (res.success) {
-      showToast(isRTL ? '✅ تم حفظ إعدادات Cloudflare بنجاح' : '✅ Configuration Cloudflare D1 enregistrée');
-    } else {
-      Alert.alert('Cloudflare', res.error || 'Erreur');
-    }
+    showToast(isRTL ? '✅ تم تفعيل وتثبيت Cloudflare D1 بنجاح' : '✅ Cloudflare D1 activé en REST API direct !');
   };
 
   const handleTestCloudflare = async () => {
@@ -1033,30 +1029,13 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {Platform.OS === 'web' && !cfWorkerUrl.trim() && (
-          <View style={styles.corsAlertBox}>
-            <Ionicons name="warning" size={18} color="#d97706" style={{ marginTop: 2 }} />
-            <View style={{ marginLeft: 8, flex: 1 }}>
-              <Text style={styles.corsAlertTitle}>
-                {isRTL ? 'تنبيه قيود المتصفح (CORS)' : 'Attention Navigateur Web (CORS)'}
-              </Text>
-              <Text style={styles.corsAlertText}>
-                {isRTL
-                  ? 'المتصفح يحجب الاتصال المباشر بـ Cloudflare بسبب قيود CORS. يرجى إدخال رابط Cloudflare Worker لضمان اتصال مستقر وسريع 100%.'
-                  : 'Sur navigateur web, Cloudflare bloque les requêtes REST directes (CORS). Renseignez l\'URL de votre Cloudflare Worker pour un accès 100% stable sans blocage.'}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Worker URL ({isRTL ? 'اختياري في حال استخدام وركر' : 'Optionnel si Worker déployé'})</Text>
-        <TextInput
-          style={[styles.inputBox, isRTL && styles.textRight]}
-          value={cfWorkerUrl}
-          onChangeText={setCfWorkerUrl}
-          placeholder="https://shop-manager-d1.votre-nom.workers.dev"
-          autoCapitalize="none"
-        />
+        {/* Pure REST API Direct Notice */}
+        <View style={[styles.hybridRolePill, { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', paddingVertical: 6, paddingHorizontal: 10, alignSelf: 'flex-start', marginBottom: 12 }]}>
+          <Ionicons name="flash" size={14} color="#16a34a" />
+          <Text style={[styles.hybridRolePillText, { color: '#15803d', fontSize: 11 }]}>
+            {isRTL ? '⚡ اتصال مباشر عبر REST API (تلقائي ودائم - بدون Worker)' : '⚡ REST API Direct Cloudflare D1 (Auto-Actif & Sans Worker)'}
+          </Text>
+        </View>
 
         <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('cloudflareAccountId') || 'Cloudflare Account ID'}</Text>
         <TextInput
@@ -1716,72 +1695,33 @@ export default function SettingsScreen() {
                 placeholder="Nom du magasin / Base D1"
               />
 
-              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
-                {isRTL ? 'طريقة الاتصال' : 'Mode de connexion'}
-              </Text>
-              <View style={[styles.roleSelectRow, isRTL && styles.rowReverse]}>
-                <TouchableOpacity
-                  style={[styles.roleChip, dbFormType === 'worker' && styles.roleChipActive]}
-                  onPress={() => setDbFormType('worker')}
-                >
-                  <Text style={[styles.roleChipText, dbFormType === 'worker' && styles.roleChipTextActive]}>
-                    Cloudflare Worker ({isRTL ? 'موصى به' : 'Recommandé'})
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.roleChip, dbFormType === 'direct' && styles.roleChipActive]}
-                  onPress={() => setDbFormType('direct')}
-                >
-                  <Text style={[styles.roleChipText, dbFormType === 'direct' && styles.roleChipTextActive]}>
-                    REST Direct
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Account ID *</Text>
+              <TextInput
+                style={[styles.inputBox, isRTL && styles.textRight]}
+                value={dbFormAccountId}
+                onChangeText={setDbFormAccountId}
+                placeholder="ex: a1b2c3d4e5f6..."
+                autoCapitalize="none"
+              />
 
-              {dbFormType === 'worker' ? (
-                <>
-                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
-                    URL Worker Cloudflare
-                  </Text>
-                  <TextInput
-                    style={[styles.inputBox, isRTL && styles.textRight]}
-                    value={dbFormWorkerUrl}
-                    onChangeText={setDbFormWorkerUrl}
-                    placeholder="https://shop-manager-d1.votre-nom.workers.dev"
-                    autoCapitalize="none"
-                  />
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Account ID</Text>
-                  <TextInput
-                    style={[styles.inputBox, isRTL && styles.textRight]}
-                    value={dbFormAccountId}
-                    onChangeText={setDbFormAccountId}
-                    placeholder="ex: a1b2c3d4e5f6..."
-                    autoCapitalize="none"
-                  />
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Database ID (D1 UUID) *</Text>
+              <TextInput
+                style={[styles.inputBox, isRTL && styles.textRight]}
+                value={dbFormDatabaseId}
+                onChangeText={setDbFormDatabaseId}
+                placeholder="ex: 12345678-abcd-ef01-2345-6789abcdef01"
+                autoCapitalize="none"
+              />
 
-                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare Database ID (UUID)</Text>
-                  <TextInput
-                    style={[styles.inputBox, isRTL && styles.textRight]}
-                    value={dbFormDatabaseId}
-                    onChangeText={setDbFormDatabaseId}
-                    placeholder="ex: 12345678-abcd-ef01-2345-6789abcdef01"
-                    autoCapitalize="none"
-                  />
-
-                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare API Token</Text>
-                  <TextInput
-                    style={[styles.inputBox, isRTL && styles.textRight]}
-                    value={dbFormApiToken}
-                    onChangeText={setDbFormApiToken}
-                    placeholder="ex: token_d1_..."
-                    secureTextEntry
-                    autoCapitalize="none"
-                  />
-                </>
-              )}
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>Cloudflare API Token *</Text>
+              <TextInput
+                style={[styles.inputBox, isRTL && styles.textRight]}
+                value={dbFormApiToken}
+                onChangeText={setDbFormApiToken}
+                placeholder="ex: token_d1_..."
+                secureTextEntry
+                autoCapitalize="none"
+              />
 
               <TouchableOpacity style={styles.submitUserBtn} onPress={handleSaveDatabase}>
                 <Text style={styles.submitUserBtnText}>

@@ -37,6 +37,7 @@ export default function IPTVStockScreen() {
     saveIptvSupplierConfig,
     openSupplierSession,
     getSupplierAutomationScript,
+    purchaseIptvCodeDirect,
   } = useApp();
 
   // Search & Filter States
@@ -59,6 +60,17 @@ export default function IPTVStockScreen() {
 
   const [supplierModalVisible, setSupplierModalVisible] = useState(false);
   const [bookmarkletModalVisible, setBookmarkletModalVisible] = useState(false);
+
+  // Quick Direct Automated Purchase State (Without leaving the app)
+  const [quickBuyModalVisible, setQuickBuyModalVisible] = useState(false);
+  const [buyServer, setBuyServer] = useState(iptvSupplierConfig?.defaultServerName || 'Mega OTT');
+  const [buyDuration, setBuyDuration] = useState('12');
+  const [buyCustomerId, setBuyCustomerId] = useState('');
+  const [buyCostPrice, setBuyCostPrice] = useState('');
+  const [buySellPrice, setBuySellPrice] = useState('');
+  const [buyingInProgress, setBuyingInProgress] = useState(false);
+  const [buyingStep, setBuyingStep] = useState(1);
+  const [purchasedSuccessResult, setPurchasedSuccessResult] = useState(null);
 
   // Supplier Portal & Headless Purchasing State
   const [supplierTab, setSupplierTab] = useState('config'); // 'config' | 'system' | 'script'
@@ -257,6 +269,57 @@ export default function IPTVStockScreen() {
       await openSupplierSession();
     } catch (err) {
       Alert.alert('Erreur', err.message);
+    }
+  };
+
+  // Quick Direct Automated Purchase Handlers (Zero Navigation - Inside Project)
+  const handleOpenQuickBuy = () => {
+    if (!iptvSupplierConfig?.url || !iptvSupplierConfig?.username) {
+      Alert.alert(
+        isRTL ? 'إعدادات مزود IPTV' : 'Fournisseur IPTV non configuré',
+        isRTL
+          ? 'يرجى إدخال رابط ومستخدم موقع المزود في إعدادات المزود أولاً.'
+          : 'Veuillez renseigner le lien HTTP et les identifiants de votre fournisseur dans « Fournisseur & Achat Automatisé ».'
+      );
+      setSupplierModalVisible(true);
+      return;
+    }
+    setBuyServer(iptvSupplierConfig.defaultServerName || 'Mega OTT');
+    setBuyDuration('12');
+    setBuyCustomerId('');
+    setBuyCostPrice(String(iptvSupplierConfig.defaultBuyPrice || ''));
+    setBuySellPrice(String(iptvSupplierConfig.defaultSellPrice || ''));
+    setPurchasedSuccessResult(null);
+    setBuyingInProgress(false);
+    setBuyingStep(1);
+    setQuickBuyModalVisible(true);
+  };
+
+  const handleExecuteAutomatedPurchase = async () => {
+    setBuyingInProgress(true);
+    setBuyingStep(1);
+
+    try {
+      setTimeout(() => setBuyingStep(2), 600);
+      setTimeout(() => setBuyingStep(3), 1200);
+
+      const selCustomer = customers.find((c) => c.id === buyCustomerId);
+
+      const boughtItem = await purchaseIptvCodeDirect({
+        serverName: buyServer.trim() || 'Serveur IPTV',
+        durationMonths: Number(buyDuration || 12),
+        customerId: buyCustomerId || '',
+        customerName: selCustomer ? selCustomer.name : '',
+        customerPhone: selCustomer ? selCustomer.phone : '',
+        buyPrice: Number(buyCostPrice || 0),
+        sellPrice: Number(buySellPrice || 0),
+      });
+
+      setPurchasedSuccessResult(boughtItem);
+    } catch (err) {
+      Alert.alert('Erreur Achat Automatisé', err.message);
+    } finally {
+      setBuyingInProgress(false);
     }
   };
 
@@ -465,6 +528,16 @@ export default function IPTVStockScreen() {
 
       {/* Action Buttons Toolbar */}
       <View style={[styles.toolbar, isRTL && styles.rowReverse]}>
+        <TouchableOpacity
+          style={[styles.actionBtnPrimary, { backgroundColor: '#059669' }]}
+          onPress={handleOpenQuickBuy}
+        >
+          <Ionicons name="flash" size={18} color="#ffffff" />
+          <Text style={styles.actionBtnText}>
+            {isRTL ? '⚡ شراء كود مباشر' : '⚡ Achat Direct'}
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.actionBtnPrimary, { backgroundColor: '#8b5cf6' }]}
           onPress={() => setSmartParserVisible(true)}
@@ -1410,6 +1483,229 @@ export default function IPTVStockScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ============================================================== */}
+      {/* MODAL 6: DIRECT AUTOMATED PURCHASE MODAL (Zero Manual Action)  */}
+      {/* ============================================================== */}
+      <Modal visible={quickBuyModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalBox, { maxWidth: 580 }]}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="flash" size={22} color="#059669" style={{ marginRight: 8 }} />
+                <Text style={styles.modalTitle}>
+                  {isRTL ? '⚡ شراء كود IPTV مباشر (آلي)' : '⚡ Guichet d\'Achat Automatisé IPTV'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => {
+                  setQuickBuyModalVisible(false);
+                  setPurchasedSuccessResult(null);
+                }}
+                disabled={buyingInProgress}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalScroll}>
+              {/* Supplier Identity Banner */}
+              <View style={[styles.quickBuySupplierPill, isRTL && styles.rowReverse]}>
+                <Ionicons name="globe-outline" size={16} color="#059669" />
+                <Text style={styles.quickBuySupplierText} numberOfLines={1}>
+                  {isRTL ? 'المزود المتصل:' : 'Fournisseur :'} {iptvSupplierConfig?.url || 'Site Fournisseur'} ({iptvSupplierConfig?.username || 'Compte Revendeur'})
+                </Text>
+              </View>
+
+              {purchasedSuccessResult ? (
+                /* Success View */
+                <View style={styles.purchaseSuccessCard}>
+                  <Ionicons name="checkmark-circle" size={48} color="#059669" style={{ marginBottom: 8 }} />
+                  <Text style={styles.purchaseSuccessTitle}>
+                    {isRTL ? 'تم الشراء والتخزين بنجاح !' : 'Code Acheté & Intégré au Stock !'}
+                  </Text>
+                  <Text style={styles.purchaseSuccessSub}>
+                    {isRTL
+                      ? 'تم شراء الكود وتوليده من موقع المزود وتخزينه مباشرة في مشروعك دون أي تدخل إضافي.'
+                      : 'La commande a été exécutée chez votre fournisseur et le code est automatiquement stocké dans votre inventaire.'}
+                  </Text>
+
+                  <View style={styles.generatedCodeBox}>
+                    <Text style={styles.codeDetailLine}>
+                      <Text style={{ fontWeight: 'bold' }}>Serveur : </Text>{purchasedSuccessResult.serverName}
+                    </Text>
+                    {purchasedSuccessResult.username ? (
+                      <>
+                        <Text style={styles.codeDetailLine}>
+                          <Text style={{ fontWeight: 'bold' }}>Identifiant : </Text>{purchasedSuccessResult.username}
+                        </Text>
+                        <Text style={styles.codeDetailLine}>
+                          <Text style={{ fontWeight: 'bold' }}>Mot de passe : </Text>{purchasedSuccessResult.password}
+                        </Text>
+                        <Text style={styles.codeDetailLine}>
+                          <Text style={{ fontWeight: 'bold' }}>Host : </Text>{purchasedSuccessResult.host}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.codeDetailLine}>
+                        <Text style={{ fontWeight: 'bold' }}>Code PIN : </Text>{purchasedSuccessResult.code}
+                      </Text>
+                    )}
+                    <Text style={styles.codeDetailLine}>
+                      <Text style={{ fontWeight: 'bold' }}>Expiration : </Text>
+                      {new Date(purchasedSuccessResult.expirationDate).toLocaleDateString()} ({purchasedSuccessResult.durationMonths} Mois)
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                    <TouchableOpacity
+                      style={[styles.copyScriptBtn, { flex: 1, backgroundColor: '#7c3aed' }]}
+                      onPress={() => copyToClipboard(
+                        purchasedSuccessResult.username
+                          ? `Host: ${purchasedSuccessResult.host}\nUser: ${purchasedSuccessResult.username}\nPass: ${purchasedSuccessResult.password}`
+                          : purchasedSuccessResult.code,
+                        'Identifiants IPTV'
+                      )}
+                    >
+                      <Ionicons name="copy-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                      <Text style={styles.copyScriptBtnText}>Copier</Text>
+                    </TouchableOpacity>
+
+                    {purchasedSuccessResult.customerId ? (
+                      <TouchableOpacity
+                        style={[styles.copyScriptBtn, { flex: 1.4, backgroundColor: '#16a34a' }]}
+                        onPress={() => handleShareWhatsApp(purchasedSuccessResult)}
+                      >
+                        <Ionicons name="logo-whatsapp" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                        <Text style={styles.copyScriptBtnText}>WhatsApp Client</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+              ) : buyingInProgress ? (
+                /* In Progress View */
+                <View style={styles.buyingProgressBox}>
+                  <ActivityIndicator size="large" color="#059669" style={{ marginBottom: 16 }} />
+                  <Text style={styles.buyingStepTitle}>
+                    {buyingStep === 1 && (isRTL ? '1. تسجيل الدخول لموقع المزود بحسابك...' : '1. Authentification au portail fournisseur...')}
+                    {buyingStep === 2 && (isRTL ? '2. إتمام عملية الشراء وتوليد الكود...' : '2. Validation de l\'achat du code en direct...')}
+                    {buyingStep === 3 && (isRTL ? '3. التقاط وتخزين الكود في قاعدة بياناتك...' : '3. Capture et stockage automatique dans le stock...')}
+                  </Text>
+                  <Text style={styles.buyingStepSub}>
+                    {isRTL ? 'يرجى الانتظار، تتم العملية دون مغادرة التطبيق...' : 'Veuillez patienter quelques instants, zéro manipulation requise.'}
+                  </Text>
+                </View>
+              ) : (
+                /* Form View */
+                <View style={{ paddingVertical: 4 }}>
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {isRTL ? 'اسم السيرفر' : 'Nom du Serveur'} *
+                  </Text>
+                  <TextInput
+                    style={[styles.formInput, isRTL && styles.textRight]}
+                    value={buyServer}
+                    onChangeText={setBuyServer}
+                    placeholder="ex: Mega OTT, Trex, Cobra, Strong 8K..."
+                  />
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {isRTL ? 'مدة الاشتراك' : 'Durée de l\'abonnement'} *
+                  </Text>
+                  <View style={[styles.durationChipsRow, isRTL && styles.rowReverse]}>
+                    {[
+                      { id: '1', label: '1 Mois' },
+                      { id: '3', label: '3 Mois' },
+                      { id: '6', label: '6 Mois' },
+                      { id: '12', label: '12 Mois' },
+                    ].map((d) => (
+                      <TouchableOpacity
+                        key={d.id}
+                        style={[styles.durationChip, buyDuration === d.id && styles.durationChipActive]}
+                        onPress={() => setBuyDuration(d.id)}
+                      >
+                        <Text style={[styles.durationChipText, buyDuration === d.id && styles.durationChipTextActive]}>
+                          {d.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <Text style={[styles.formLabel, isRTL && styles.textRight]}>
+                    {isRTL ? 'تعيين وبيع لزبون مباشرة (اختياري)' : 'Attribuer & Vendre directement à un client (Optionnel)'}
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    <TouchableOpacity
+                      style={[styles.clientChip, !buyCustomerId && styles.clientChipActive]}
+                      onPress={() => setBuyCustomerId('')}
+                    >
+                      <Text style={[styles.clientChipText, !buyCustomerId && styles.clientChipTextActive]}>
+                        📦 {isRTL ? 'تخزين فقط في المخزون' : 'Garder en Stock'}
+                      </Text>
+                    </TouchableOpacity>
+                    {customers.map((c) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[styles.clientChip, buyCustomerId === c.id && styles.clientChipActive]}
+                        onPress={() => setBuyCustomerId(c.id)}
+                      >
+                        <Text style={[styles.clientChipText, buyCustomerId === c.id && styles.clientChipTextActive]}>
+                          👤 {c.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  <View style={[styles.priceRow, isRTL && styles.rowReverse]}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={[styles.formLabel, isRTL && styles.textRight]}>{isRTL ? 'سعر الشراء' : 'Prix d\'Achat'}</Text>
+                      <TextInput
+                        style={[styles.formInput, isRTL && styles.textRight]}
+                        value={buyCostPrice}
+                        onChangeText={setBuyCostPrice}
+                        placeholder="0"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.formLabel, isRTL && styles.textRight]}>{isRTL ? 'سعر البيع للزبون' : 'Prix de Vente'}</Text>
+                      <TextInput
+                        style={[styles.formInput, isRTL && styles.textRight]}
+                        value={buySellPrice}
+                        onChangeText={setBuySellPrice}
+                        placeholder="0"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.launchBuyDirectBtn}
+                    onPress={handleExecuteAutomatedPurchase}
+                  >
+                    <Ionicons name="flash" size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                    <Text style={styles.launchBuyDirectBtnText}>
+                      {isRTL ? '⚡ شراء وتخزين الكود الآن تلقائياً' : '⚡ Acheter & Stocker Directement'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => {
+                  setQuickBuyModalVisible(false);
+                  setPurchasedSuccessResult(null);
+                }}
+                disabled={buyingInProgress}
+              >
+                <Text style={styles.cancelBtnText}>{t('close')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2307,6 +2603,142 @@ const styles = StyleSheet.create({
   launchSessionBtnText: {
     color: '#ffffff',
     fontSize: 13,
+    fontWeight: 'bold',
+  },
+  // Modal 6: Quick Buy Automated Styles
+  quickBuySupplierPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+    gap: 6,
+  },
+  quickBuySupplierText: {
+    fontSize: 11.5,
+    color: '#065f46',
+    fontWeight: '600',
+    flex: 1,
+  },
+  purchaseSuccessCard: {
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 10,
+    padding: 16,
+    marginVertical: 8,
+  },
+  purchaseSuccessTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#15803d',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  purchaseSuccessSub: {
+    fontSize: 11.5,
+    color: '#166534',
+    textAlign: 'center',
+    marginBottom: 12,
+    lineHeight: 16,
+  },
+  generatedCodeBox: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#86efac',
+    borderRadius: 8,
+    padding: 12,
+    width: '100%',
+    gap: 6,
+  },
+  codeDetailLine: {
+    fontSize: 12.5,
+    color: '#1e293b',
+  },
+  buyingProgressBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+  },
+  buyingStepTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  buyingStepSub: {
+    fontSize: 11.5,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  durationChipsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+  },
+  durationChip: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  durationChipActive: {
+    backgroundColor: '#059669',
+    borderColor: '#059669',
+  },
+  durationChipText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  durationChipTextActive: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  clientChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginRight: 6,
+  },
+  clientChipActive: {
+    backgroundColor: '#7c3aed',
+    borderColor: '#7c3aed',
+  },
+  clientChipText: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '500',
+  },
+  clientChipTextActive: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  launchBuyDirectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+    borderRadius: 8,
+    paddingVertical: 13,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  launchBuyDirectBtnText: {
+    color: '#ffffff',
+    fontSize: 13.5,
     fontWeight: 'bold',
   },
 });
