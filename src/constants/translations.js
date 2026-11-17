@@ -328,6 +328,80 @@ export const translations = {
     lastSync: "Dernière Synchro",
     syncNow: "Synchroniser Maintenant",
     dataSegregationNote: "Ségrégation stricte des données : Données personnelles & comptes sur Firebase / Stocks, IPTV & Ventes sur Cloudflare D1.",
+
+    // Code PIN Paramètres
+    pinSettingsTitle: "Sécurité & Code PIN Paramètres",
+    pinSettingsDesc: "Protégez l'accès aux paramètres et configurations sensibles avec un code PIN à 4 chiffres.",
+    pinEnabled: "Protection par PIN Active",
+    pinDisabled: "Protection par PIN Désactivée",
+    activatePin: "Activer un code PIN",
+    changePin: "Modifier le code PIN",
+    disablePin: "Désactiver le code PIN",
+    enterPin: "Entrez votre code PIN",
+    enterCurrentPin: "Code PIN actuel",
+    enterNewPin: "Nouveau code PIN (4 chiffres)",
+    confirmNewPin: "Confirmer le nouveau code PIN",
+    pinIncorrect: "Code PIN incorrect !",
+    pinMismatch: "Les codes PIN ne correspondent pas !",
+    pinMustBe4Digits: "Le code PIN doit comporter 4 chiffres !",
+    pinSavedSuccess: "✅ Code PIN enregistré avec succès !",
+    pinDisabledSuccess: "✅ Protection par PIN désactivée !",
+    accessSettingsUnlocked: "Accès Paramètres Déverrouillé",
+    unlockSettingsPrompt: "Veuillez entrer le code PIN pour accéder aux Paramètres",
+
+    // Saturation Base de données
+    dbCapacityTitle: "Capacité & Saturation du Stockage",
+    dbCapacityDesc: "Vérifiez l'espace mémoire utilisé et assurez-vous que la base de données ne sature pas.",
+    dbStatusOptimal: "🟢 Excellent / Espace Large",
+    dbStatusWarning: "🟡 Utilisation Modérée",
+    dbStatusCritical: "🔴 Attention : Saturation Élevée",
+    dbStorageUsed: "Espace utilisé estimé",
+    dbTotalRecords: "Total enregistrements",
+    dbProductsCount: "Produits en stock",
+    dbSalesCount: "Ventes enregistrées",
+    dbCustomersCount: "Fiches clients",
+    dbExpensesCount: "Dépenses enregistrées",
+    measureStorage: "Analyser l'état du stockage",
+
+    // Emplacements de Stockage
+    storageLocationsTitle: "Emplacements & Routage du Stockage",
+    storageLocationsDesc: "Configurez l'emplacement de stockage de chaque module de votre projet (Local, Firebase, Cloudflare D1).",
+    storageLocalDesc: "Stockage Local Rapide sur cet appareil (AsyncStorage / Offline)",
+    storageCloudflareDesc: "Cloudflare D1 SQL (Cloud Haute Vitesse)",
+    storageFirebaseDesc: "Google Firebase Firestore (Temps Réel)",
+    backupMasterJson: "Sauvegarde Complète (Fichier JSON)",
+    backupMasterJsonDesc: "Téléchargez toutes les données du projet dans un fichier pour les stocker sur clé USB ou disque.",
+    exportBackupBtn: "Exporter la Sauvegarde Complète",
+    importBackupBtn: "Restaurer depuis un Fichier Externe",
+
+    // Photo Produit
+    productPhoto: "Photo du produit",
+    photoOptionalBadge: "(Optionnel)",
+    choosePhoto: "Sélectionner une photo",
+    removePhoto: "Supprimer la photo",
+    imageOrUrlPlaceholder: "Coller l'URL de l'image ou sélectionner un fichier...",
+
+    // Calculs & Bénéfices
+    allProjectCalculations: "Bilan Financier & Bénéfices Complets",
+    grossProfitCalculated: "Marge Brute sur Ventes",
+    netProfitCalculated: "Bénéfice Net Réel Global",
+    stockBuyValuation: "Valeur du Stock (Prix Achat)",
+    stockSellValuation: "Valeur Marchande (Prix Vente)",
+    potentialStockProfit: "Bénéfice Potentiel en Stock",
+    profitabilityRate: "Taux de Rentabilité",
+    realCashInflow: "Total Entrées d'Argent Réelles",
+    netCashFlowStatement: "Trésorerie Nette Disponible",
+
+    // Export Excel
+    exportExcelMenu: "Exportation Excel",
+    exportAllExcelBtn: "Grand Export Excel Complet du Projet",
+    exportProductsExcelBtn: "Exporter Produits & Stock en Excel",
+    exportSalesExcelBtn: "Exporter Ventes & Bénéfices en Excel",
+    exportFinancialExcelBtn: "Exporter Bilan Financier en Excel",
+
+    // Guide et Conseils
+    storeManagementGuide: "Guide & Conseils de Gestion du Magasin",
+    viewManagementGuide: "Voir les Conseils d'Organisation Pro",
   },
 
   ar: {
@@ -659,5 +733,79 @@ export const translations = {
     lastSync: "آخر مزامنة",
     syncNow: "مزامنة الآن",
     dataSegregationNote: "عزل أمني للبيانات: البيانات الشخصية والحسابات على فايربيس / المخزون، IPTV والمبيعات على كودفلير D1.",
+
+    // Code PIN Paramètres
+    pinSettingsTitle: "حماية الإعدادات برمز PIN",
+    pinSettingsDesc: "احمِ الوصول إلى الإعدادات والبيانات الحساسة برمز مرور مكون من 4 أرقام.",
+    pinEnabled: "الحماية برمز PIN مفعلة",
+    pinDisabled: "الحماية برمز PIN معطلة",
+    activatePin: "تفعيل رمز PIN جديد",
+    changePin: "تغيير رمز PIN",
+    disablePin: "تعطيل رمز PIN",
+    enterPin: "أدخل رمز PIN",
+    enterCurrentPin: "رمز PIN الحالي",
+    enterNewPin: "رمز PIN الجديد (4 أرقام)",
+    confirmNewPin: "تأكيد رمز PIN الجديد",
+    pinIncorrect: "رمز PIN غير صحيح!",
+    pinMismatch: "رمزا PIN غير متطابقين!",
+    pinMustBe4Digits: "يجب أن يتكون رمز PIN من 4 أرقام!",
+    pinSavedSuccess: "✅ تم حفظ رمز PIN بنجاح!",
+    pinDisabledSuccess: "✅ تم تعطيل الحماية برمز PIN!",
+    accessSettingsUnlocked: "تم فتح قفل الإعدادات",
+    unlockSettingsPrompt: "يرجى إدخال رمز PIN للدخول إلى الإعدادات",
+
+    // Saturation Base de données
+    dbCapacityTitle: "سعة وتشبع قاعدة البيانات",
+    dbCapacityDesc: "راقب استهلاك الذاكرة وتأكد من أن قاعدة البيانات في حالة صحية ولا تقترب من التشبع.",
+    dbStatusOptimal: "🟢 ممتازة / مساحة واسعة",
+    dbStatusWarning: "🟡 استخدام متوسط",
+    dbStatusCritical: "🔴 تنبيه: اقتراب التشبع",
+    dbStorageUsed: "الحجم التقديري المستخدم",
+    dbTotalRecords: "إجمالي السجلات",
+    dbProductsCount: "المنتجات بالمخزن",
+    dbSalesCount: "المبيعات المسجلة",
+    dbCustomersCount: "بطاقات الزبائن",
+    dbExpensesCount: "المصاريف المسجلة",
+    measureStorage: "فحص وتشخيص حالة الذاكرة",
+
+    // Emplacements de Stockage
+    storageLocationsTitle: "أماكن وتوجيه تخزين البيانات",
+    storageLocationsDesc: "حدد مكان تخزين كل نوع من بيانات المشروع (محلي، فايربيس، كودفلير D1).",
+    storageLocalDesc: "تخزين محلي سريع على هذا الجهاز (AsyncStorage / دون إنترنت)",
+    storageCloudflareDesc: "قاعدة كودفلير سحابية D1 SQL (فائقة السرعة)",
+    storageFirebaseDesc: "قاعدة بيانات فايربيس (تزامن لحظي)",
+    backupMasterJson: "نسخة احتياطية شاملة (ملف JSON)",
+    backupMasterJsonDesc: "حمّل جميع بيانات المشروع في ملف واحد لحفظه على فلاش ديسك أو قرص صلب خارجي.",
+    exportBackupBtn: "تصدير نسخة احتياطية شاملة",
+    importBackupBtn: "استرجاع بيانات من ملف خارجي",
+
+    // Photo Produit
+    productPhoto: "صورة المنتج",
+    photoOptionalBadge: "(اختياري)",
+    choosePhoto: "اختيار صورة",
+    removePhoto: "حذف الصورة",
+    imageOrUrlPlaceholder: "الصق رابط الصورة أو اختر ملفاً...",
+
+    // Calculs & Bénéfices
+    allProjectCalculations: "الحسابات المالية الشاملة والأرباح",
+    grossProfitCalculated: "إجمالي هامش ربح المبيعات",
+    netProfitCalculated: "صافي الأرباح الحقيقية الإجمالية",
+    stockBuyValuation: "قيمة المخزون (سعر الشراء)",
+    stockSellValuation: "القيمة السوقية للمخزون (سعر البيع)",
+    potentialStockProfit: "الربح التقديري المتبقي في المخزون",
+    profitabilityRate: "نسبة المردودية والربحية",
+    realCashInflow: "إجمالي المداخيل النقدية الحقيقية",
+    netCashFlowStatement: "السيولة النقدية الصافية",
+
+    // Export Excel
+    exportExcelMenu: "تصدير إلى ملفات إكسل (Excel)",
+    exportAllExcelBtn: "تصدير تقرير شامل للمشروع في إكسل",
+    exportProductsExcelBtn: "تصدير المنتجات والمخزون إلى إكسل",
+    exportSalesExcelBtn: "تصدير المبيعات والأرباح إلى إكسل",
+    exportFinancialExcelBtn: "تصدير القوائم المالية إلى إكسل",
+
+    // Guide et Conseils
+    storeManagementGuide: "دليل ونصائح إدارة وتنظيم المحل",
+    viewManagementGuide: "عرض نصائح الإدارة الاحترافية",
   }
 };

@@ -16,6 +16,11 @@ import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import ProfessionalReceiptModal from '../components/ProfessionalReceiptModal';
 import { printReceiptDirectly } from '../services/receiptPrinter';
+import {
+  exportFinancialStatementToExcel,
+  exportSalesToExcel,
+  exportMasterProjectExcel,
+} from '../services/excelExport';
 
 export default function ReportsScreen() {
   const {
@@ -28,6 +33,7 @@ export default function ReportsScreen() {
     repairs = [],
     products = [],
     customers = [],
+    iptvCodes = [],
     processSaleReturn,
     isRTL,
     storeInfo,
@@ -536,6 +542,78 @@ export default function ReportsScreen() {
             </Text>
           </TouchableOpacity>
         ))}
+      </View>
+
+      {/* EXCEL EXPORT QUICK ACTION BAR */}
+      <View style={[styles.excelBarCard, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+          <Ionicons name="document-text" size={20} color="#059669" style={{ marginRight: 6 }} />
+          <Text style={styles.excelBarTitle}>
+            {isRTL ? 'تصدير البيانات إلى إكسل (Excel):' : 'Exporter les Données en Excel :'}
+          </Text>
+        </View>
+
+        <View style={[styles.excelBtnRow, isRTL && styles.rowReverse]}>
+          <TouchableOpacity
+            style={styles.excelBtnGreen}
+            onPress={() =>
+              exportFinancialStatementToExcel(
+                {
+                  totalRevenue: totalSalesRevenue,
+                  grossProfit,
+                  totalExpenses,
+                  repairIncome,
+                  totalRefunds,
+                  netProfit,
+                  profitMarginPercent: totalSalesRevenue > 0 ? ((netProfit / totalSalesRevenue) * 100).toFixed(1) : '0',
+                  inventoryBuyValue,
+                  inventorySellValue,
+                  potentialInventoryMargin,
+                  totalCustomerDebt,
+                  cashInflow: totalCashIn,
+                  netCashFlow,
+                  periodLabel: period === 'today' ? "Aujourd'hui" : period === 'week' ? 'Cette Semaine' : period === 'month' ? 'Ce Mois' : 'Global',
+                },
+                currency
+              )
+            }
+          >
+            <Ionicons name="bar-chart-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+            <Text style={styles.excelBtnText}>
+              {isRTL ? 'بيان الأرباح' : 'Bilan Financier'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.excelBtnBlue}
+            onPress={() => exportSalesToExcel(filteredSales, customers, currency)}
+          >
+            <Ionicons name="cart-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+            <Text style={styles.excelBtnText}>
+              {isRTL ? 'المبيعات' : 'Ventes'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.excelBtnPurple}
+            onPress={() =>
+              exportMasterProjectExcel({
+                products,
+                sales,
+                customers,
+                expenses,
+                repairs,
+                iptvCodes,
+                currency,
+              })
+            }
+          >
+            <Ionicons name="file-tray-full-outline" size={15} color="#ffffff" style={{ marginRight: 4 }} />
+            <Text style={styles.excelBtnText}>
+              {isRTL ? 'المشروع كاملاً' : 'Projet Complet'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ========================================================= */}
@@ -1882,5 +1960,52 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: theme.colors.textSecondary,
+  },
+  excelBarCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.md,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  excelBarTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  excelBtnRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  excelBtnGreen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  excelBtnBlue: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  excelBtnPurple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#7c3aed',
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  excelBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
 });

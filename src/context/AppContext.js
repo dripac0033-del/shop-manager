@@ -225,6 +225,22 @@ export const AppProvider = ({ children }) => {
     error: null,
   });
 
+  // Settings PIN Protection
+  const [settingsPin, setSettingsPin] = useState('');
+  const [isPinRequired, setIsPinRequired] = useState(false);
+  const [isSettingsUnlocked, setIsSettingsUnlocked] = useState(false);
+
+  // Storage Location Routing (Local / Firebase / Cloudflare D1)
+  const [storageRouting, setStorageRouting] = useState({
+    personalData: 'firebase',
+    products: 'cloudflare',
+    sales: 'cloudflare',
+    customers: 'local',
+    iptv: 'cloudflare',
+    expenses: 'local',
+    repairs: 'local',
+  });
+
   const isLocalUpdateRef = useRef(false);
   const lastActivityRef = useRef(Date.now());
 
@@ -373,6 +389,23 @@ export const AppProvider = ({ children }) => {
           try {
             const iptvParsed = JSON.parse(storedIptv);
             if (Array.isArray(iptvParsed)) setIptvCodes(iptvParsed);
+          } catch (e) {}
+        }
+
+        // Hydrate PIN settings
+        const storedPin = await AsyncStorage.getItem('@settings_pin');
+        const storedPinReq = await AsyncStorage.getItem('@settings_pin_enabled');
+        if (storedPin) setSettingsPin(storedPin);
+        if (storedPinReq === 'true') setIsPinRequired(true);
+
+        // Hydrate Storage Routing
+        const storedRouting = await AsyncStorage.getItem('@storage_routing');
+        if (storedRouting) {
+          try {
+            const parsedRouting = JSON.parse(storedRouting);
+            if (parsedRouting && typeof parsedRouting === 'object') {
+              setStorageRouting((prev) => ({ ...prev, ...parsedRouting }));
+            }
           } catch (e) {}
         }
 
@@ -1007,6 +1040,7 @@ export const AppProvider = ({ children }) => {
 
   const logout = async (isExpired = false) => {
     setCurrentUser(null);
+    setIsSettingsUnlocked(false);
     await AsyncStorage.removeItem('@session_user');
     await AsyncStorage.removeItem('@last_activity_time');
     if (isExpired) {
@@ -2662,6 +2696,251 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  // ==============================================================
+  // SETTINGS PIN PROTECTION
+  // ==============================================================
+  const unlockSettingsWithPin = (enteredPin) => {
+    touchActivity();
+    if (!isPinRequired || !settingsPin) {
+      setIsSettingsUnlocked(true);
+      return { success: true };
+    }
+    if (String(enteredPin).trim() === String(settingsPin).trim()) {
+      setIsSettingsUnlocked(true);
+      return { success: true };
+    }
+    return {
+      success: false,
+      message: language === 'ar' ? 'رمز PIN غير صحيح!' : 'Code PIN incorrect !',
+    };
+  };
+
+  const setSettingsPinCode = async (newPin, currentPin) => {
+    touchActivity();
+    const cleanNew = String(newPin || '').trim();
+    if (cleanNew.length < 4) {
+      throw new Error(
+        language === 'ar'
+          ? 'يجب أن يتكون رمز PIN من 4 أرقام على الأقل!'
+          : 'Le code PIN doit comporter au moins 4 chiffres !'
+      );
+    }
+    if (isPinRequired && settingsPin) {
+      if (String(currentPin).trim() !== String(settingsPin).trim()) {
+        throw new Error(
+          language === 'ar' ? 'رمز PIN الحالي غير صحيح!' : 'Code PIN actuel incorrect !'
+        );
+      }
+    }
+    setSettingsPin(cleanNew);
+    setIsPinRequired(true);
+    setIsSettingsUnlocked(true);
+    await AsyncStorage.setItem('@settings_pin', cleanNew);
+    await AsyncStorage.setItem('@settings_pin_enabled', 'true');
+    return true;
+  };
+
+  const disableSettingsPinCode = async (currentPin) => {
+    touchActivity();
+    if (settingsPin && String(currentPin).trim() !== String(settingsPin).trim()) {
+      throw new Error(
+        language === 'ar' ? 'رمز PIN الحالي غير صحيح!' : 'Code PIN actuel incorrect !'
+      );
+    }
+    setIsPinRequired(false);
+    await AsyncStorage.setItem('@settings_pin_enabled', 'false');
+    return true;
+  };
+
+  const lockSettings = () => {
+    setIsSettingsUnlocked(false);
+  };
+
+  // ==============================================================
+  // DATABASE STORAGE CAPACITY & SATURATION ANALYTICS
+  // ==============================================================
+  const getStorageDiagnostics = () => {
+    const counts = {
+      products: products.length,
+      categories: categories.length,
+      customers: customers.length,
+      sales: sales.length,
+      transactions: transactions.length,
+      expenses: expenses.length,
+      repairs: repairs.length,
+      services: services.length,
+      iptvCodes: iptvCodes.length,
+      users: users.length,
+    };
+
+    const totalRecords = Object.values(counts).reduce((a, b) => a + b, 0);
+
+    let totalBytes = 0;
+    try {
+      const dataPayload = JSON.stringify({
+        products,
+        categories,
+        customers,
+        sales,
+        transactions,
+        expenses,
+        repairs,
+        services,
+        iptvCodes,
+        storeInfo,
+      });
+      totalBytes = typeof Blob !== 'undefined' ? new Blob([dataPayload]).size : dataPayload.length;
+    } catch (e) {
+      totalBytes = totalRecords * 350;
+    }
+
+    // Recommended local AsyncStorage ceiling: 6 MB (6,291,456 bytes)
+    const SAFE_LIMIT_BYTES = 6 * 1024 * 1024;
+    const usagePercent = Math.min(100, Math.max(1, Math.round((totalBytes / SAFE_LIMIT_BYTES) * 100)));
+
+    let status = 'healthy';
+    let statusLabel = '🟢 Espace Sain / Large';
+    let statusLabelAr = '🟢 ممتازة / مساحة واسعة';
+    let advice = 'Votre base de données fonctionne de manière optimale. Aucun risque de saturation.';
+    let adviceAr = 'قاعدة البيانات تعمل بأداء ممتاز ومثالي. لا يوجد أي خطر تشبع.';
+
+    if (usagePercent >= 80) {
+      status = 'critical';
+      statusLabel = '🔴 Attention : Saturation Élevée';
+      statusLabelAr = '🔴 تنبيه: اقتراب التشبع';
+      advice = 'La base de données approche de la limite recommandée. Exportez un fichier Excel ou archivez les anciennes ventes.';
+      adviceAr = 'قاعدة البيانات تقترب من الحد الأقصى الموصى به. قم بتصدير ملف إكسل أو أرشفة المبيعات القديمة.';
+    } else if (usagePercent >= 50) {
+      status = 'moderate';
+      statusLabel = '🟡 Utilisation Modérée';
+      statusLabelAr = '🟡 استخدام متوسط';
+      advice = 'Consommation normale de la mémoire. Pensez à faire une sauvegarde périodique.';
+      adviceAr = 'استهلاك طبيعي للذاكرة. تذكر عمل نسخة احتياطية بشكل دوري.';
+    }
+
+    const kb = (totalBytes / 1024).toFixed(1);
+    const mb = (totalBytes / (1024 * 1024)).toFixed(2);
+    const sizeFormatted = totalBytes > 1024 * 1024 ? `${mb} Mo` : `${kb} Ko`;
+
+    return {
+      totalRecords,
+      totalBytes,
+      sizeFormatted,
+      usagePercent,
+      safeLimitFormatted: '6.0 Mo',
+      status,
+      statusLabel,
+      statusLabelAr,
+      advice,
+      adviceAr,
+      counts,
+    };
+  };
+
+  // ==============================================================
+  // STORAGE LOCATION ROUTING & CUSTOM BACKUPS
+  // ==============================================================
+  const updateStorageRouting = async (newRouting) => {
+    touchActivity();
+    const updated = { ...storageRouting, ...newRouting };
+    setStorageRouting(updated);
+    await AsyncStorage.setItem('@storage_routing', JSON.stringify(updated));
+    return updated;
+  };
+
+  const exportMasterBackupJSON = () => {
+    touchActivity();
+    const backupData = {
+      appName: 'ShopManager',
+      version: '1.0.0',
+      exportDate: new Date().toISOString(),
+      storeInfo,
+      products,
+      categories,
+      customers,
+      sales,
+      transactions,
+      expenses,
+      repairs,
+      services,
+      iptvCodes,
+      storageRouting,
+    };
+
+    const jsonString = JSON.stringify(backupData, null, 2);
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `sauvegarde_magasin_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+    return jsonString;
+  };
+
+  const importMasterBackupJSON = async (jsonString) => {
+    touchActivity();
+    try {
+      const parsed = typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Format de fichier de sauvegarde invalide');
+      }
+
+      if (Array.isArray(parsed.products)) {
+        setProducts(parsed.products);
+        await AsyncStorage.setItem('@store_products', JSON.stringify(parsed.products));
+      }
+      if (Array.isArray(parsed.categories)) {
+        setCategories(parsed.categories);
+        await AsyncStorage.setItem('@store_categories', JSON.stringify(parsed.categories));
+      }
+      if (Array.isArray(parsed.customers)) {
+        setCustomers(parsed.customers);
+        await AsyncStorage.setItem('@store_customers', JSON.stringify(parsed.customers));
+      }
+      if (Array.isArray(parsed.sales)) {
+        setSales(parsed.sales);
+        await AsyncStorage.setItem('@store_sales', JSON.stringify(parsed.sales));
+      }
+      if (Array.isArray(parsed.transactions)) {
+        setTransactions(parsed.transactions);
+        await AsyncStorage.setItem('@store_transactions', JSON.stringify(parsed.transactions));
+      }
+      if (Array.isArray(parsed.expenses)) {
+        setExpenses(parsed.expenses);
+        await AsyncStorage.setItem('@store_expenses', JSON.stringify(parsed.expenses));
+      }
+      if (Array.isArray(parsed.repairs)) {
+        setRepairs(parsed.repairs);
+        await AsyncStorage.setItem('@store_repairs', JSON.stringify(parsed.repairs));
+      }
+      if (Array.isArray(parsed.services)) {
+        setServices(parsed.services);
+        await AsyncStorage.setItem('@store_services', JSON.stringify(parsed.services));
+      }
+      if (Array.isArray(parsed.iptvCodes)) {
+        setIptvCodes(parsed.iptvCodes);
+        await AsyncStorage.setItem('@store_iptv_codes', JSON.stringify(parsed.iptvCodes));
+      }
+      if (parsed.storeInfo && typeof parsed.storeInfo === 'object') {
+        setStoreInfo(parsed.storeInfo);
+        await AsyncStorage.setItem('@store_info', JSON.stringify(parsed.storeInfo));
+      }
+      if (parsed.storageRouting && typeof parsed.storageRouting === 'object') {
+        setStorageRouting(parsed.storageRouting);
+        await AsyncStorage.setItem('@storage_routing', JSON.stringify(parsed.storageRouting));
+      }
+
+      return { success: true };
+    } catch (e) {
+      throw new Error('Erreur lors de la restauration : ' + e.message);
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -2792,6 +3071,24 @@ export const AppProvider = ({ children }) => {
         // Real-Time Auto-Sync Engine
         syncMetrics,
         runAutoSync,
+
+        // Settings PIN Protection
+        settingsPin,
+        isPinRequired,
+        isSettingsUnlocked,
+        unlockSettingsWithPin,
+        setSettingsPinCode,
+        disableSettingsPinCode,
+        lockSettings,
+
+        // Database Storage Saturation & Diagnostics
+        getStorageDiagnostics,
+
+        // Storage Routing & Custom Locations / Master JSON
+        storageRouting,
+        updateStorageRouting,
+        exportMasterBackupJSON,
+        importMasterBackupJSON,
       }}
     >
       {children}

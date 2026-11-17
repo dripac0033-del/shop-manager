@@ -10,16 +10,19 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import CameraBarcodeScannerModal from '../components/CameraBarcodeScannerModal';
+import { exportProductsToExcel } from '../services/excelExport';
 
 export default function ProductsScreen() {
   const {
     t,
     formatMoney,
+    currency = 'DA',
     products = [],
     categories = [],
     addProduct,
@@ -61,6 +64,7 @@ export default function ProductsScreen() {
   const [sellPrice, setSellPrice] = useState('');
   const [stock, setStock] = useState('10');
   const [minStock, setMinStock] = useState('5');
+  const [image, setImage] = useState('');
 
   // New Category Form State
   const [newCatNameFr, setNewCatNameFr] = useState('');
@@ -74,10 +78,47 @@ export default function ProductsScreen() {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
+  // Image Picker handler (Web & Mobile)
+  const handlePickImage = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target?.files?.[0];
+        if (file) {
+          if (file.size > 2 * 1024 * 1024) {
+            Alert.alert(
+              'Photo',
+              isRTL
+                ? 'حجم الصورة كبير جداً، يرجى اختيار صورة أقل من 2 ميغابايت'
+                : 'Image trop volumineuse (maximum 2 Mo)'
+            );
+            return;
+          }
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            setImage(event.target.result);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+    } else {
+      Alert.alert(
+        'Photo',
+        isRTL
+          ? 'يمكنك لصق رابط صورة مباشر في خانة الرابط أدناه'
+          : "Veuillez coller l'URL d'une image dans le champ prévu à cet effet."
+      );
+    }
+  };
+
   // Open modal for Add
   const handleOpenAdd = () => {
     setEditingProduct(null);
-    setBarcode(Math.floor(6130000000 + Math.random() * 999999).toString());
+    setBarcode(''); // Left blank - scan or manual entry only!
+    setImage('');
     setNameFr('');
     setNameAr('');
     setCategory(categories[0]?.nameFr || 'Alimentation');
@@ -91,6 +132,7 @@ export default function ProductsScreen() {
   const handleOpenEdit = (p) => {
     setEditingProduct(p);
     setBarcode(p.barcode || '');
+    setImage(p.image || p.photo || '');
     setNameFr(p.nameFr || '');
     setNameAr(p.nameAr || '');
     setCategory(p.category || 'Alimentation');
@@ -113,7 +155,7 @@ export default function ProductsScreen() {
     }
 
     const payload = {
-      barcode: barcode || Math.floor(6130000000 + Math.random() * 999999).toString(),
+      barcode: barcode.trim(),
       nameFr: nameFr.trim() || nameAr.trim(),
       nameAr: nameAr.trim() || nameFr.trim(),
       category: category.trim() || 'Alimentation',
@@ -121,6 +163,7 @@ export default function ProductsScreen() {
       sellPrice: Number(sellPrice || 0),
       stock: Number(stock || 0),
       minStock: Number(minStock || 5),
+      image: image ? image.trim() : '',
     };
 
     // CLOSE WINDOW DIRECTLY
@@ -391,6 +434,16 @@ export default function ProductsScreen() {
           <Text style={styles.btnSmallText}>{isRTL ? 'الأصناف' : 'Catégories'}</Text>
         </TouchableOpacity>
 
+        {/* Export Excel Button */}
+        <TouchableOpacity
+          style={styles.excelExportBtn}
+          onPress={() => exportProductsToExcel(validProducts, currency)}
+          title="Exporter en Excel"
+        >
+          <Ionicons name="document-text-outline" size={18} color="#ffffff" />
+          <Text style={styles.btnSmallText}>Excel</Text>
+        </TouchableOpacity>
+
         {/* Add Product Button */}
         <TouchableOpacity style={styles.addBtn} onPress={handleOpenAdd}>
           <Ionicons name="add" size={26} color="#ffffff" />
@@ -570,6 +623,17 @@ export default function ProductsScreen() {
 
             return (
               <View style={[styles.productItemCard, isRTL && styles.rowReverse]}>
+                {/* Product Photo Thumbnail or Placeholder */}
+                <View style={styles.productThumbContainer}>
+                  {item.image || item.photo ? (
+                    <Image source={{ uri: item.image || item.photo }} style={styles.productThumbImg} resizeMode="cover" />
+                  ) : (
+                    <View style={styles.productThumbFallback}>
+                      <Ionicons name="cube-outline" size={24} color={theme.colors.primary} />
+                    </View>
+                  )}
+                </View>
+
                 <View style={[styles.productDetails, isRTL && styles.alignRight]}>
                   <View style={[styles.badgeLine, isRTL && styles.rowReverse]}>
                     <Text style={styles.categoryLabel}>{item.category || 'Général'}</Text>
@@ -678,29 +742,78 @@ export default function ProductsScreen() {
             </View>
 
             <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('barcode')}</Text>
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                {t('barcode')} {isRTL ? '(امسح بالكاميرا أو اكتب يدوياً)' : '(Scanner ou saisie manuelle)'}
+              </Text>
               <View style={[styles.barcodeInputRow, isRTL && styles.rowReverse]}>
                 <TextInput
                   style={[styles.inputBox, { flex: 1 }, isRTL && styles.textRight]}
                   value={barcode}
                   onChangeText={setBarcode}
-                  placeholder="613..."
+                  placeholder={isRTL ? "امسح الباركود بالكاميرا أو اكتبه..." : "Scannez ou saisissez le code-barres..."}
                   placeholderTextColor={theme.colors.textMuted}
                 />
-                <TouchableOpacity
-                  style={styles.genBarcodeBtn}
-                  onPress={() => setBarcode(Math.floor(6130000000 + Math.random() * 999999).toString())}
-                >
-                  <Ionicons name="refresh" size={18} color="#ffffff" />
-                  <Text style={styles.genBtnText}>{isRTL ? 'توليد' : 'Générer'}</Text>
-                </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.scanCodeModalBtn}
+                  style={[styles.scanCodeModalBtn, { paddingHorizontal: 16 }]}
                   onPress={() => setScannerModalVisible(true)}
                 >
-                  <Ionicons name="camera-outline" size={18} color="#ffffff" />
+                  <Ionicons name="camera-outline" size={20} color="#ffffff" style={{ marginRight: 6 }} />
+                  <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 13 }}>
+                    {isRTL ? 'مسح' : 'Scanner'}
+                  </Text>
                 </TouchableOpacity>
+              </View>
+
+              {/* Product Photo Section (Optionnel / Optional) */}
+              <View style={[styles.photoSectionHeader, isRTL && styles.rowReverse]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="image" size={18} color={theme.colors.primary} style={{ marginRight: 6 }} />
+                  <Text style={styles.inputLabel}>{t('productPhoto') || 'Photo du produit'}</Text>
+                </View>
+                <View style={styles.optionalBadge}>
+                  <Text style={styles.optionalBadgeText}>{t('photoOptionalBadge') || '(Optionnel)'}</Text>
+                </View>
+              </View>
+
+              <View style={[styles.photoPickerContainer, isRTL && styles.rowReverse]}>
+                {image ? (
+                  <View style={styles.photoPreviewWrapper}>
+                    <Image source={{ uri: image }} style={styles.photoPreviewImg} resizeMode="cover" />
+                    <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => setImage('')}>
+                      <Ionicons name="close-circle" size={22} color={theme.colors.danger} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.photoPlaceholder}>
+                    <Ionicons name="image-outline" size={32} color="#94a3b8" />
+                    <Text style={styles.photoPlaceholderText}>
+                      {isRTL ? 'لا توجد صورة' : 'Aucune photo'}
+                    </Text>
+                    <Text style={[styles.photoPlaceholderText, { fontSize: 10, color: '#94a3b8' }]}>
+                      {isRTL ? '(اختياري)' : '(Optionnel)'}
+                    </Text>
+                  </View>
+                )}
+
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <TouchableOpacity style={styles.pickPhotoBtn} onPress={handlePickImage}>
+                    <Ionicons name="cloud-upload-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+                    <Text style={styles.pickPhotoBtnText}>
+                      {image ? (isRTL ? 'تغيير الصورة' : 'Changer la photo') : (isRTL ? 'اختيار صورة' : 'Choisir une photo')}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TextInput
+                    style={[styles.inputBox, { marginTop: 8, fontSize: 12, paddingVertical: 6 }, isRTL && styles.textRight]}
+                    value={image.startsWith('data:') ? (isRTL ? 'تم تحميل الصورة محلياً' : 'Photo locale chargée') : image}
+                    onChangeText={(val) => {
+                      if (!val.startsWith('Photo locale') && !val.startsWith('تم تحميل')) setImage(val);
+                    }}
+                    placeholder={isRTL ? 'أو الصق رابط صورة مباشر...' : "Ou coller l'URL d'une image..."}
+                    placeholderTextColor={theme.colors.textMuted}
+                  />
+                </View>
               </View>
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('productName')} (Français) *</Text>
@@ -1514,5 +1627,116 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     marginTop: 8,
+  },
+  excelExportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingHorizontal: 10,
+    height: 42,
+    borderRadius: theme.borderRadius.md,
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  productThumbContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: theme.borderRadius.md,
+    overflow: 'hidden',
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  productThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  productThumbFallback: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#e0e7ff',
+  },
+  photoSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  optionalBadge: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: theme.borderRadius.full,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  optionalBadgeText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  photoPickerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    padding: 10,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    marginBottom: 12,
+  },
+  photoPreviewWrapper: {
+    width: 68,
+    height: 68,
+    borderRadius: theme.borderRadius.md,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  photoPreviewImg: {
+    width: '100%',
+    height: '100%',
+  },
+  photoRemoveBtn: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+  },
+  photoPlaceholder: {
+    width: 68,
+    height: 68,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: '#cbd5e1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  photoPlaceholderText: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: '600',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  pickPhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.md,
+  },
+  pickPhotoBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 });

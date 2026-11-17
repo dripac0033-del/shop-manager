@@ -11,6 +11,7 @@ import {
   Alert,
   Platform,
   Linking,
+  Image,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
@@ -182,6 +183,12 @@ export default function POSScreen() {
     setTimeout(() => {
       setScanFeedback(null);
     }, 3000);
+  };
+
+  // Immediate scanner window closure when item is scanned (ready to scan again cleanly)
+  const handleCameraBarcodeScan = (code) => {
+    setScannerModalVisible(false);
+    handleBarcodeScan(code);
   };
 
   // Calculations
@@ -479,11 +486,21 @@ export default function POSScreen() {
               onPress={() => addToCart(item)}
               activeOpacity={0.7}
             >
-              {inCart && (
-                <View style={styles.inCartBadge}>
-                  <Text style={styles.inCartBadgeText}>{inCart.quantity}</Text>
-                </View>
-              )}
+              <View style={[styles.posProductTopRow, isRTL && styles.rowReverse]}>
+                {item.image || item.photo ? (
+                  <Image source={{ uri: item.image || item.photo }} style={styles.posProductImg} resizeMode="cover" />
+                ) : (
+                  <View style={styles.posProductIconFallback}>
+                    <Ionicons name="cube-outline" size={16} color={theme.colors.primary} />
+                  </View>
+                )}
+                {inCart && (
+                  <View style={styles.inCartBadge}>
+                    <Text style={styles.inCartBadgeText}>{inCart.quantity}</Text>
+                  </View>
+                )}
+              </View>
+
               <Text style={[styles.productName, isRTL && styles.textRight]} numberOfLines={2}>
                 {isRTL ? item.nameAr || item.nameFr : item.nameFr}
               </Text>
@@ -791,13 +808,13 @@ export default function POSScreen() {
         </View>
       </Modal>
 
-      {/* Real Camera Barcode Scanner Modal (Continuous & Fast) */}
+      {/* Real Camera Barcode Scanner Modal (Closes on Scan & Ready to re-open instantly) */}
       <CameraBarcodeScannerModal
         visible={scannerModalVisible}
         onClose={() => setScannerModalVisible(false)}
-        onScan={(code) => handleBarcodeScan(code)}
+        onScan={handleCameraBarcodeScan}
         title={isRTL ? 'ماسح الكاميرا السريع' : 'Scanner Caméra Ventes'}
-        continuous={true}
+        continuous={false}
         feedback={scanFeedback}
         isRTL={isRTL}
       />
@@ -977,6 +994,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.border,
     elevation: 1,
+  },
+  posProductTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  posProductImg: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
+  },
+  posProductIconFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 6,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   productCardDisabled: {
     opacity: 0.5,

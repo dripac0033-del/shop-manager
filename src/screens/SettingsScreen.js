@@ -11,12 +11,19 @@ import {
   Platform,
   Modal,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useApp } from '../context/AppContext';
 import { theme } from '../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { DEFAULT_FIREBASE_CONFIG } from '../services/firebase';
+import {
+  exportMasterProjectExcel,
+  exportProductsToExcel,
+  exportSalesToExcel,
+} from '../services/excelExport';
 
 export default function SettingsScreen() {
+  const navigation = useNavigation();
   const {
     language,
     setLanguage,
@@ -31,6 +38,7 @@ export default function SettingsScreen() {
     expenses = [],
     services = [],
     repairs = [],
+    iptvCodes = [],
     t,
     isRTL,
     // Authentication & Users
@@ -41,6 +49,21 @@ export default function SettingsScreen() {
     logout,
     sessionTimeoutMinutes,
     updateSessionTimeout,
+    // Settings PIN Protection
+    settingsPin,
+    isPinRequired,
+    isSettingsUnlocked,
+    unlockSettingsWithPin,
+    setSettingsPinCode,
+    disableSettingsPinCode,
+    lockSettings,
+    // Storage Diagnostics
+    getStorageDiagnostics,
+    // Storage Routing & Custom Locations
+    storageRouting = {},
+    updateStorageRouting,
+    exportMasterBackupJSON,
+    importMasterBackupJSON,
     // Firebase
     firebaseConfig,
     firebaseConnected,
@@ -132,6 +155,148 @@ export default function SettingsScreen() {
   const [settingSupServer, setSettingSupServer] = useState(iptvSupplierConfig?.defaultServerName || '');
   const [settingShowSupPass, setSettingShowSupPass] = useState(false);
   const [savingSettingSup, setSavingSettingSup] = useState(false);
+
+  // PIN Unlock Gate State
+  const [enteredPin, setEnteredPin] = useState('');
+  const [pinUnlockError, setPinUnlockError] = useState('');
+  const [showUnlockPin, setShowUnlockPin] = useState(false);
+
+  // PIN Management Modal State
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [currentPinForm, setCurrentPinForm] = useState('');
+  const [newPinForm, setNewPinForm] = useState('');
+  const [confirmPinForm, setConfirmPinForm] = useState('');
+  const [showPinModalText, setShowPinModalText] = useState(false);
+
+  // Storage Diagnostics State
+  const [diagnosticsData, setDiagnosticsData] = useState(() => (getStorageDiagnostics ? getStorageDiagnostics() : null));
+
+  // Guide & Advice Modal State
+  const [guideModalVisible, setGuideModalVisible] = useState(false);
+  const [activeGuideTab, setActiveGuideTab] = useState('stock'); // 'stock' | 'cash' | 'credit' | 'backup' | 'margin'
+
+  const handleUnlockPin = () => {
+    if (!enteredPin.trim()) return;
+    const res = unlockSettingsWithPin(enteredPin.trim());
+    if (res.success) {
+      setPinUnlockError('');
+      setEnteredPin('');
+    } else {
+      setPinUnlockError(res.message || (isRTL ? 'رمز PIN غير صحيح!' : 'Code PIN incorrect !'));
+      setEnteredPin('');
+    }
+  };
+
+  const handleOpenPinModal = () => {
+    setCurrentPinForm('');
+    setNewPinForm('');
+    setConfirmPinForm('');
+    setPinModalVisible(true);
+  };
+
+  const handleSavePin = async () => {
+    if (!newPinForm.trim()) {
+      Alert.alert(t('save'), isRTL ? 'يرجى إدخال رمز PIN الجديد!' : 'Veuillez saisir le nouveau code PIN !');
+      return;
+    }
+    if (newPinForm.trim().length < 4) {
+      Alert.alert(t('save'), isRTL ? 'يجب أن يتكون رمز PIN من 4 أرقام على الأقل!' : 'Le code PIN doit comporter au moins 4 chiffres !');
+      return;
+    }
+    if (newPinForm.trim() !== confirmPinForm.trim()) {
+      Alert.alert(t('save'), isRTL ? 'رمزا PIN غير متطابقين!' : 'Les deux codes PIN ne correspondent pas !');
+      return;
+    }
+
+    try {
+      await setSettingsPinCode(newPinForm.trim(), currentPinForm.trim());
+      setPinModalVisible(false);
+      setCurrentPinForm('');
+      setNewPinForm('');
+      setConfirmPinForm('');
+      showToast(isRTL ? '✅ تم حفظ وتفعيل رمز PIN بنجاح' : '✅ Code PIN enregistré et activé avec succès');
+    } catch (err) {
+      Alert.alert('Erreur Code PIN', err.message);
+    }
+  };
+
+  const handleDisablePin = async () => {
+    const confirmPrompt = isRTL
+      ? 'هل أنت متأكد من تعطيل حماية رمز PIN للإعدادات؟'
+      : 'Voulez-vous vraiment désactiver la protection par code PIN ?';
+
+    const performDisable = async (pinAttempt) => {
+      try {
+        await disableSettingsPinCode(pinAttempt);
+        showToast(isRTL ? '✅ تم تعطيل رمز PIN' : '✅ Protection par PIN désactivée');
+      } catch (err) {
+        Alert.alert('Erreur', err.message);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm ? window.confirm(confirmPrompt) : true;
+      if (confirmed) {
+        const pinAttempt = window.prompt ? window.prompt(isRTL ? 'أدخل رمز PIN الحالي للتأكيد:' : 'Entrez le code PIN actuel :') : '';
+        if (pinAttempt !== null) performDisable(pinAttempt);
+      }
+    } else {
+      Alert.alert(
+        'Code PIN',
+        confirmPrompt,
+        [
+          { text: t('cancel'), style: 'cancel' },
+          { text: isRTL ? 'تعطيل' : 'Désactiver', style: 'destructive', onPress: () => performDisable('') },
+        ]
+      );
+    }
+  };
+
+  const handleRefreshDiagnostics = () => {
+    if (getStorageDiagnostics) {
+      const diag = getStorageDiagnostics();
+      setDiagnosticsData(diag);
+      showToast(isRTL ? '✅ تم فحص وتشخيص الذاكرة' : '✅ Diagnostic de stockage actualisé');
+    }
+  };
+
+  const handleImportBackup = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = (e) => {
+        const file = e.target?.files?.[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            try {
+              await importMasterBackupJSON(event.target.result);
+              if (getStorageDiagnostics) setDiagnosticsData(getStorageDiagnostics());
+              showToast(isRTL ? '✅ تم استرجاع النسخة الاحتياطية بنجاح' : '✅ Sauvegarde restaurée avec succès');
+              Alert.alert(
+                isRTL ? 'استرجاع ناجح' : 'Restauration réussie',
+                isRTL
+                  ? 'تم استرجاع جميع بيانات المشروع والمخزن بنجاح!'
+                  : 'Toutes les données du projet ont été restaurées avec succès !'
+              );
+            } catch (err) {
+              Alert.alert('Erreur', err.message);
+            }
+          };
+          reader.readAsText(file);
+        }
+      };
+      input.click();
+    } else {
+      Alert.alert(
+        'Restauration',
+        isRTL
+          ? 'يرجى فتح التطبيق من المتصفح لاستيراد ملف النسخة الاحتياطية'
+          : 'Veuillez utiliser la version Web pour importer un fichier de sauvegarde JSON.'
+      );
+    }
+  };
 
   useEffect(() => {
     if (iptvSupplierConfig) {
@@ -637,6 +802,90 @@ export default function SettingsScreen() {
     ]);
   };
 
+  // PIN LOCK GATE FOR SETTINGS ACCESS
+  if (isPinRequired && !isSettingsUnlocked) {
+    return (
+      <View style={styles.pinLockContainer}>
+        <View style={styles.pinLockCard}>
+          <View style={styles.pinLockIconBox}>
+            <Ionicons name="lock-closed" size={44} color={theme.colors.primary} />
+          </View>
+
+          <Text style={styles.pinLockTitle}>
+            {isRTL ? 'إعدادات محمية برمز PIN' : 'Paramètres Sécurisés'}
+          </Text>
+
+          <Text style={styles.pinLockSubtitle}>
+            {isRTL
+              ? 'يرجى إدخال رمز PIN المكون من 4 أرقام للوصول إلى لوحة الإعدادات.'
+              : 'Veuillez saisir votre code PIN à 4 chiffres pour accéder aux paramètres du magasin.'}
+          </Text>
+
+          {pinUnlockError ? (
+            <View style={styles.pinErrorBanner}>
+              <Ionicons name="alert-circle" size={16} color={theme.colors.danger} />
+              <Text style={styles.pinErrorText}>{pinUnlockError}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.pinInputRow}>
+            <TextInput
+              style={styles.pinInputMain}
+              value={enteredPin}
+              onChangeText={(val) => {
+                setEnteredPin(val);
+                setPinUnlockError('');
+                if (val.length === 4) {
+                  const res = unlockSettingsWithPin(val);
+                  if (!res.success) {
+                    setPinUnlockError(res.message || (isRTL ? 'رمز PIN غير صحيح!' : 'Code PIN incorrect !'));
+                    setEnteredPin('');
+                  }
+                }
+              }}
+              placeholder="••••"
+              placeholderTextColor="#94a3b8"
+              keyboardType="numeric"
+              secureTextEntry={!showUnlockPin}
+              maxLength={6}
+              autoFocus={true}
+              onSubmitEditing={handleUnlockPin}
+            />
+            <TouchableOpacity
+              style={styles.pinEyeBtn}
+              onPress={() => setShowUnlockPin(!showUnlockPin)}
+            >
+              <Ionicons
+                name={showUnlockPin ? 'eye-off-outline' : 'eye-outline'}
+                size={22}
+                color="#64748b"
+              />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.pinSubmitBtn} onPress={handleUnlockPin}>
+            <Ionicons name="key" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.pinSubmitBtnText}>
+              {isRTL ? 'إلغاء القفل والمتابعة' : 'Déverrouiller l’accès'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.pinBackBtn}
+            onPress={() => {
+              if (navigation && navigation.goBack) navigation.goBack();
+            }}
+          >
+            <Ionicons name={isRTL ? "arrow-forward" : "arrow-back"} size={16} color="#64748b" style={{ marginRight: 4 }} />
+            <Text style={styles.pinBackBtnText}>
+              {isRTL ? 'رجوع إلى الشاشة السابقة' : 'Retour'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Toast Feedback */}
@@ -673,6 +922,344 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* 1. SETTINGS PIN CODE SECURITY */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="shield-checkmark" size={20} color={theme.colors.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('pinSettingsTitle') || 'Sécurité & Code PIN Paramètres'}</Text>
+        </View>
+        <View
+          style={[
+            styles.pinStatusBadge,
+            { backgroundColor: isPinRequired ? '#dcfce7' : '#f1f5f9' },
+          ]}
+        >
+          <Text
+            style={[
+              styles.pinStatusBadgeText,
+              { color: isPinRequired ? '#15803d' : '#64748b' },
+            ]}
+          >
+            {isPinRequired
+              ? (isRTL ? 'الحماية مفعّلة' : 'Protection Active')
+              : (isRTL ? 'معطل' : 'Désactivé')}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.usersHelpText, isRTL && styles.textRight]}>
+          {t('pinSettingsDesc') ||
+            "Protégez l'accès aux paramètres, configurations sensibles et bases de données avec un code PIN à 4 chiffres."}
+        </Text>
+
+        <View style={[styles.pinActionBtnsRow, isRTL && styles.rowReverse]}>
+          <TouchableOpacity style={styles.pinSetBtn} onPress={handleOpenPinModal}>
+            <Ionicons name="key-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+            <Text style={styles.pinSetBtnText}>
+              {isPinRequired
+                ? (isRTL ? 'تعديل رمز PIN' : 'Modifier le Code PIN')
+                : (isRTL ? 'تفعيل رمز PIN جديد' : 'Définir un Code PIN')}
+            </Text>
+          </TouchableOpacity>
+
+          {isPinRequired && (
+            <TouchableOpacity style={styles.pinDisableBtn} onPress={handleDisablePin}>
+              <Ionicons name="lock-open-outline" size={16} color={theme.colors.danger} style={{ marginRight: 6 }} />
+              <Text style={styles.pinDisableBtnText}>
+                {isRTL ? 'تعطيل الحماية' : 'Désactiver le PIN'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {isPinRequired && (
+            <TouchableOpacity style={styles.pinLockNowBtn} onPress={lockSettings}>
+              <Ionicons name="lock-closed-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
+              <Text style={styles.pinLockNowBtnText}>
+                {isRTL ? 'قفل الآن' : 'Verrouiller'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* 2. DATABASE STORAGE CAPACITY & SATURATION ANALYTICS */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="speedometer" size={20} color="#0284c7" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('dbCapacityTitle') || 'Capacité & Saturation du Stockage'}</Text>
+        </View>
+        <TouchableOpacity style={styles.refreshDiagBtn} onPress={handleRefreshDiagnostics}>
+          <Ionicons name="refresh" size={15} color="#0284c7" />
+          <Text style={styles.refreshDiagBtnText}>{isRTL ? 'فحص' : 'Diagnostiquer'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {diagnosticsData && (
+        <View style={styles.card}>
+          <View style={[styles.storageTopRow, isRTL && styles.rowReverse]}>
+            <View>
+              <Text style={[styles.statLabel, isRTL && styles.textRight]}>
+                {t('dbStorageUsed') || 'Espace Mémoire Utilisé'} :
+              </Text>
+              <Text style={styles.storageUsageNum}>
+                {diagnosticsData.sizeFormatted} <Text style={{ fontSize: 13, color: '#64748b' }}>/ {diagnosticsData.safeLimitFormatted} ({diagnosticsData.usagePercent}%)</Text>
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.storageHealthPill,
+                diagnosticsData.status === 'healthy'
+                  ? styles.storageHealthy
+                  : diagnosticsData.status === 'moderate'
+                  ? styles.storageModerate
+                  : styles.storageCritical,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.storageHealthPillText,
+                  diagnosticsData.status === 'healthy'
+                    ? { color: '#15803d' }
+                    : diagnosticsData.status === 'moderate'
+                    ? { color: '#b45309' }
+                    : { color: '#b91c1c' },
+                ]}
+              >
+                {isRTL ? diagnosticsData.statusLabelAr : diagnosticsData.statusLabel}
+              </Text>
+            </View>
+          </View>
+
+          {/* Progress Bar Gauge */}
+          <View style={styles.gaugeTrack}>
+            <View
+              style={[
+                styles.gaugeFill,
+                {
+                  width: `${diagnosticsData.usagePercent}%`,
+                  backgroundColor:
+                    diagnosticsData.status === 'healthy'
+                      ? '#10b981'
+                      : diagnosticsData.status === 'moderate'
+                      ? '#f59e0b'
+                      : '#ef4444',
+                },
+              ]}
+            />
+          </View>
+
+          <Text style={[styles.storageAdviceText, isRTL && styles.textRight]}>
+            💡 {isRTL ? diagnosticsData.adviceAr : diagnosticsData.advice}
+          </Text>
+
+          {/* Detailed Records Breakdown */}
+          <View style={styles.storageGrid}>
+            <View style={styles.storageGridItem}>
+              <Text style={styles.storageGridLabel}>{t('products')}</Text>
+              <Text style={styles.storageGridVal}>{diagnosticsData.counts.products}</Text>
+            </View>
+            <View style={styles.storageGridItem}>
+              <Text style={styles.storageGridLabel}>{isRTL ? 'المبيعات' : 'Ventes'}</Text>
+              <Text style={styles.storageGridVal}>{diagnosticsData.counts.sales}</Text>
+            </View>
+            <View style={styles.storageGridItem}>
+              <Text style={styles.storageGridLabel}>{t('customers')}</Text>
+              <Text style={styles.storageGridVal}>{diagnosticsData.counts.customers}</Text>
+            </View>
+            <View style={styles.storageGridItem}>
+              <Text style={styles.storageGridLabel}>{t('expenses')}</Text>
+              <Text style={styles.storageGridVal}>{diagnosticsData.counts.expenses}</Text>
+            </View>
+            <View style={styles.storageGridItem}>
+              <Text style={styles.storageGridLabel}>{t('repairs')}</Text>
+              <Text style={styles.storageGridVal}>{diagnosticsData.counts.repairs}</Text>
+            </View>
+            <View style={styles.storageGridItem}>
+              <Text style={styles.storageGridLabel}>IPTV</Text>
+              <Text style={styles.storageGridVal}>{diagnosticsData.counts.iptvCodes}</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* 3. STORAGE LOCATIONS & ROUTING */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="folder-open" size={20} color="#7c3aed" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('storageLocationsTitle') || 'Emplacements & Routage du Stockage'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.usersHelpText, isRTL && styles.textRight]}>
+          {t('storageLocationsDesc') ||
+            "Définissez et consultez l'emplacement de sauvegarde pour chaque module de votre projet (Local, Firebase, Cloudflare D1)."}
+        </Text>
+
+        {[
+          { key: 'personalData', title: isRTL ? 'البيانات الشخصية والمستخدمين' : 'Comptes & Utilisateurs', loc: storageRouting.personalData || 'firebase', icon: 'person-circle-outline' },
+          { key: 'products', title: isRTL ? 'المنتجات والمخزون' : 'Stock & Produits', loc: storageRouting.products || 'cloudflare', icon: 'cube-outline' },
+          { key: 'sales', title: isRTL ? 'المبيعات والكاسة' : 'Ventes & Caisse', loc: storageRouting.sales || 'cloudflare', icon: 'cart-outline' },
+          { key: 'customers', title: isRTL ? 'الزبائن والديون' : 'Clients & Dettes', loc: storageRouting.customers || 'local', icon: 'people-outline' },
+          { key: 'iptv', title: isRTL ? 'سيرفرات IPTV' : 'IPTV & Abonnements', loc: storageRouting.iptv || 'cloudflare', icon: 'tv-outline' },
+          { key: 'expenses', title: isRTL ? 'المصاريف والخدمات' : 'Dépenses & Frais', loc: storageRouting.expenses || 'local', icon: 'wallet-outline' },
+        ].map((item) => (
+          <View key={item.key} style={[styles.routingItemRow, isRTL && styles.rowReverse]}>
+            <View style={[styles.routingItemLeft, isRTL && styles.rowReverse]}>
+              <Ionicons name={item.icon} size={20} color="#475569" style={{ marginRight: 8 }} />
+              <Text style={styles.routingItemTitle}>{item.title}</Text>
+            </View>
+
+            <View style={styles.routingPillRow}>
+              {['local', 'cloudflare', 'firebase'].map((backend) => {
+                const isActive = item.loc === backend;
+                return (
+                  <TouchableOpacity
+                    key={backend}
+                    style={[
+                      styles.routingChoiceBtn,
+                      isActive && styles.routingChoiceBtnActive,
+                    ]}
+                    onPress={() => updateStorageRouting({ [item.key]: backend })}
+                  >
+                    <Text
+                      style={[
+                        styles.routingChoiceText,
+                        isActive && styles.routingChoiceTextActive,
+                      ]}
+                    >
+                      {backend === 'local' ? (isRTL ? 'محلي' : 'Local') : backend === 'cloudflare' ? 'D1' : 'Firebase'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+
+        {/* Custom JSON Backup Download & Import */}
+        <View style={styles.backupActionsContainer}>
+          <Text style={[styles.inputLabel, { marginTop: 10 }, isRTL && styles.textRight]}>
+            {isRTL ? 'حفظ ونقل البيانات إلى ملف خارجي (قرص / فلاش ديسك):' : 'Sauvegarde Externe (Fichier JSON sur Disque ou Clé USB) :'}
+          </Text>
+
+          <View style={[styles.backupBtnRow, isRTL && styles.rowReverse]}>
+            <TouchableOpacity style={styles.exportBackupBtn} onPress={exportMasterBackupJSON}>
+              <Ionicons name="download-outline" size={16} color="#ffffff" style={{ marginRight: 6 }} />
+              <Text style={styles.exportBackupBtnText}>
+                {isRTL ? 'تصدير نسخة احتياطية (JSON)' : 'Exporter Sauvegarde Complète'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.importBackupBtn} onPress={handleImportBackup}>
+              <Ionicons name="cloud-upload-outline" size={16} color={theme.colors.primary} style={{ marginRight: 6 }} />
+              <Text style={styles.importBackupBtnText}>
+                {isRTL ? 'استيراد ملف خارجي' : 'Restaurer depuis Fichier'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      {/* 4. PROFESSIONAL EXCEL EXPORTS */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="document-text" size={20} color="#059669" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('exportExcelMenu') || 'Exportations Excel Professionnelles'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.usersHelpText, isRTL && styles.textRight]}>
+          {isRTL
+            ? 'قم بتصدير جميع بيانات المخزون والمبيعات والحسابات المالية في جداول إكسل منسقة وجاهزة للطباعة والمحاسبة.'
+            : 'Exportez toutes vos données de stock, ventes et finances dans des classeurs Excel structurés et formatés.'}
+        </Text>
+
+        <TouchableOpacity
+          style={styles.masterExcelBtn}
+          onPress={() =>
+            exportMasterProjectExcel({
+              products,
+              sales,
+              customers,
+              expenses,
+              repairs,
+              iptvCodes,
+              currency,
+            })
+          }
+        >
+          <Ionicons name="file-tray-full" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.masterExcelBtnTitle}>
+              {t('exportAllExcelBtn') || 'Grand Export Excel Complet du Projet (All-in-One)'}
+            </Text>
+            <Text style={styles.masterExcelBtnSub}>
+              {isRTL ? 'يشمل المخزون، المبيعات، الزبائن، الديون والمصاريف' : 'Comprend le stock, ventes, clients, dettes, réparations et dépenses'}
+            </Text>
+          </View>
+          <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={18} color="#ffffff" />
+        </TouchableOpacity>
+
+        <View style={[styles.secondaryExcelRow, isRTL && styles.rowReverse]}>
+          <TouchableOpacity
+            style={styles.secondaryExcelBtn}
+            onPress={() => exportProductsToExcel(products, currency)}
+          >
+            <Ionicons name="cube-outline" size={16} color="#059669" style={{ marginRight: 6 }} />
+            <Text style={styles.secondaryExcelBtnText}>
+              {isRTL ? 'إكسل المخزون' : 'Excel Produits'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryExcelBtn}
+            onPress={() => exportSalesToExcel(sales, customers, currency)}
+          >
+            <Ionicons name="cart-outline" size={16} color="#059669" style={{ marginRight: 6 }} />
+            <Text style={styles.secondaryExcelBtnText}>
+              {isRTL ? 'إكسل المبيعات' : 'Excel Ventes'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 5. STORE MANAGEMENT GUIDE & BEST PRACTICES */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="bulb" size={20} color="#d97706" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{t('storeManagementGuide') || 'Guide & Conseils de Gestion Pro'}</Text>
+        </View>
+        <TouchableOpacity style={styles.viewGuideBtn} onPress={() => setGuideModalVisible(true)}>
+          <Ionicons name="book-outline" size={15} color="#d97706" />
+          <Text style={styles.viewGuideBtnText}>{isRTL ? 'فتح الدليل' : 'Consulter'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.guideTeaserCard, isRTL && styles.rowReverse]}
+        onPress={() => setGuideModalVisible(true)}
+        activeOpacity={0.85}
+      >
+        <View style={styles.guideTeaserIcon}>
+          <Ionicons name="school-outline" size={26} color="#d97706" />
+        </View>
+        <View style={{ flex: 1, marginHorizontal: 10 }}>
+          <Text style={[styles.guideTeaserTitle, isRTL && styles.textRight]}>
+            {isRTL ? 'أفضل الممارسات لتنظيم وتسيير المحل والمخزون' : '5 Piliers Clés pour Réussir la Gestion du Magasin'}
+          </Text>
+          <Text style={[styles.guideTeaserSub, isRTL && styles.textRight]}>
+            {isRTL
+              ? 'إدارة المخزون، ضبط الكاسة اليومية، استرجاع ديون الزبائن، والنسخ الاحتياطي الدوري.'
+              : 'Conseils pratiques : gestion de stock, clôture de caisse, recouvrement des crédits et sauvegardes 3-2-1.'}
+          </Text>
+        </View>
+        <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={20} color="#d97706" />
+      </TouchableOpacity>
 
       {/* DEDICATED USERS MANAGEMENT TABLE (Table 'users' Firestore) */}
       <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
@@ -1580,6 +2167,222 @@ export default function SettingsScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* PIN CONFIGURATION MODAL */}
+      <Modal visible={pinModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="key" size={20} color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.modalTitle}>
+                  {isPinRequired ? (isRTL ? 'تعديل رمز PIN' : 'Modifier le Code PIN') : (isRTL ? 'تعيين رمز PIN' : 'Définir un Code PIN')}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setPinModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {isPinRequired && (
+                <>
+                  <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                    {t('enterCurrentPin') || 'Code PIN Actuel *'}
+                  </Text>
+                  <TextInput
+                    style={[styles.inputBox, isRTL && styles.textRight]}
+                    value={currentPinForm}
+                    onChangeText={setCurrentPinForm}
+                    placeholder="••••"
+                    keyboardType="numeric"
+                    secureTextEntry={!showPinModalText}
+                    maxLength={6}
+                  />
+                </>
+              )}
+
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                {t('enterNewPin') || 'Nouveau Code PIN (4 chiffres) *'}
+              </Text>
+              <TextInput
+                style={[styles.inputBox, isRTL && styles.textRight]}
+                value={newPinForm}
+                onChangeText={setNewPinForm}
+                placeholder="Ex: 1234"
+                keyboardType="numeric"
+                secureTextEntry={!showPinModalText}
+                maxLength={6}
+              />
+
+              <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                {t('confirmNewPin') || 'Confirmer le Nouveau Code PIN *'}
+              </Text>
+              <TextInput
+                style={[styles.inputBox, isRTL && styles.textRight]}
+                value={confirmPinForm}
+                onChangeText={setConfirmPinForm}
+                placeholder="Ex: 1234"
+                keyboardType="numeric"
+                secureTextEntry={!showPinModalText}
+                maxLength={6}
+              />
+
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 8 }}
+                onPress={() => setShowPinModalText(!showPinModalText)}
+              >
+                <Ionicons
+                  name={showPinModalText ? 'checkbox' : 'square-outline'}
+                  size={18}
+                  color={theme.colors.primary}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>
+                  {isRTL ? 'إظهار الأرقام أثناء الكتابة' : 'Afficher les chiffres'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.submitUserBtn} onPress={handleSavePin}>
+                <Text style={styles.submitUserBtnText}>
+                  {isRTL ? 'حفظ وتفعيل رمز PIN' : 'Enregistrer le Code PIN'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* STORE MANAGEMENT GUIDE MODAL */}
+      <Modal visible={guideModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxWidth: 540, maxHeight: '85%' }]}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="bulb" size={22} color="#d97706" style={{ marginRight: 6 }} />
+                <Text style={styles.modalTitle}>
+                  {isRTL ? 'دليل ونصائح تنظيم المحل' : 'Guide d’Organisation du Magasin'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setGuideModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Guide Pills Header */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }}>
+              {[
+                { key: 'stock', title: isRTL ? 'المخزون' : '1. Stock', icon: 'cube' },
+                { key: 'cash', title: isRTL ? 'الكاسة' : '2. Caisse', icon: 'cash' },
+                { key: 'credit', title: isRTL ? 'الديون' : '3. Crédits', icon: 'people' },
+                { key: 'margin', title: isRTL ? 'الأرباح' : '4. Marges', icon: 'trending-up' },
+                { key: 'backup', title: isRTL ? 'الأمان' : '5. Sécurité', icon: 'shield' },
+              ].map((tab) => (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[
+                    styles.guideNavTab,
+                    activeGuideTab === tab.key && styles.guideNavTabActive,
+                  ]}
+                  onPress={() => setActiveGuideTab(tab.key)}
+                >
+                  <Ionicons
+                    name={tab.icon}
+                    size={14}
+                    color={activeGuideTab === tab.key ? '#ffffff' : '#64748b'}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text
+                    style={[
+                      styles.guideNavTabText,
+                      activeGuideTab === tab.key && styles.guideNavTabTextActive,
+                    ]}
+                  >
+                    {tab.title}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+              {activeGuideTab === 'stock' && (
+                <View style={styles.guideTabBody}>
+                  <Text style={styles.guideCardHeading}>📦 Gestion du Stock & Approvisionnement</Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Définissez toujours un stock minimum :</Text> Réglez le stock d'alerte (ex: 5 unités) pour chaque produit afin que la cloche de notification vous avertisse à temps.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Priorité aux produits à forte rotation (Méthode 80/20) :</Text> 20% de vos références génèrent 80% de vos ventes. Ne laissez jamais ces produits phares tomber en rupture.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Inventaire tournant mensuel :</Text> Au lieu d'attendre la fin d'année, comptez 1 rayon chaque semaine pour détecter immédiatement les pertes ou erreurs de saisie.
+                  </Text>
+                </View>
+              )}
+
+              {activeGuideTab === 'cash' && (
+                <View style={styles.guideTabBody}>
+                  <Text style={styles.guideCardHeading}>💵 Tenue de Caisse & Trésorerie Quotidienne</Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Clôture journalière stricte :</Text> Chaque soir, comparez les espèces réelles dans le tiroir-caisse avec le montant affiché dans l'onglet "Statistiques & Ventes".
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Enregistrez chaque sortie d'argent :</Text> Ne prenez jamais de l'argent de la caisse pour payer un café ou une facture sans l'ajouter immédiatement dans l'onglet "Dépenses".
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Fonds de roulement fixe :</Text> Gardez un fond de caisse constant chaque matin pour la monnaie (ex: 5 000 DA ou 10 000 DA).
+                  </Text>
+                </View>
+              )}
+
+              {activeGuideTab === 'credit' && (
+                <View style={styles.guideTabBody}>
+                  <Text style={styles.guideCardHeading}>👥 Maîtrise des Crédits & Dettes Clients</Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Fixez un plafond de crédit par client :</Text> Ne laissez pas un client dépasser une limite sans régler au moins une partie de son ancienne dette.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Partagez les tickets par WhatsApp :</Text> À chaque paiement partiel ou ajout de crédit, envoyez le récapitulatif directement sur WhatsApp du client depuis l'onglet Ventes.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Surveillez les créances anciennes :</Text> Consultez régulièrement l'indicateur "Total Dettes Clients" sur le Tableau de Bord.
+                  </Text>
+                </View>
+              )}
+
+              {activeGuideTab === 'margin' && (
+                <View style={styles.guideTabBody}>
+                  <Text style={styles.guideCardHeading}>📈 Rentabilité, Prix & Calcul des Marges</Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Marge Brute vs Bénéfice Net :</Text> Marge Brute = Prix de Vente - Prix d'Achat. Votre vrai bénéfice net déduit également les loyers, électricité, sacs et frais.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Actualisez les prix d'achat lors des arrivages :</Text> Si votre fournisseur augmente ses prix, répercutez-le immédiatement pour ne pas vendre à perte.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Exportez le bilan financier en Excel :</Text> Utilisez le bouton Excel chaque fin de mois pour analyser vos produits les plus rentables.
+                  </Text>
+                </View>
+              )}
+
+              {activeGuideTab === 'backup' && (
+                <View style={styles.guideTabBody}>
+                  <Text style={styles.guideCardHeading}>🛡️ Sécurité & Stratégie de Sauvegarde 3-2-1</Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Activez le Code PIN :</Text> Empêchez les employés ou caissiers d'accéder aux paramètres, aux bilans financiers et à la suppression des bases de données.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Exportez une sauvegarde JSON chaque semaine :</Text> Utilisez le bouton "Exporter Sauvegarde Complète (JSON)" et conservez le fichier sur une clé USB ou Google Drive.
+                  </Text>
+                  <Text style={styles.guideItemText}>
+                    • <Text style={{ fontWeight: 'bold' }}>Surveillez la jauge de saturation :</Text> Gardez l'utilisation mémoire sous les 70% pour garantir une vitesse ultra-fluide sur mobile et PC.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* Create User Modal (Validates & Exits Directly) */}
       <Modal visible={userModalVisible} animationType="slide" transparent>
@@ -2562,5 +3365,477 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+
+  // PIN LOCK GATE STYLES
+  pinLockContainer: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  pinLockCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#ffffff',
+    borderRadius: theme.borderRadius.xl,
+    padding: 24,
+    alignItems: 'center',
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pinLockIconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pinLockTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  pinLockSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  pinErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fee2e2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 14,
+    width: '100%',
+  },
+  pinErrorText: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  pinInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+    borderRadius: theme.borderRadius.md,
+    backgroundColor: '#f8fafc',
+    width: '100%',
+    marginBottom: 16,
+    paddingHorizontal: 12,
+  },
+  pinInputMain: {
+    flex: 1,
+    height: 52,
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    letterSpacing: 8,
+    color: '#0f172a',
+  },
+  pinEyeBtn: {
+    padding: 6,
+  },
+  pinSubmitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    borderRadius: theme.borderRadius.full,
+    width: '100%',
+    marginBottom: 10,
+  },
+  pinSubmitBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  pinBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  pinBackBtnText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+
+  // PIN SETTINGS IN SCREEN
+  pinStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.full,
+  },
+  pinStatusBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  pinActionBtnsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  pinSetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
+  },
+  pinSetBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  pinDisableBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
+  },
+  pinDisableBtnText: {
+    color: '#dc2626',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  pinLockNowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: theme.borderRadius.md,
+  },
+  pinLockNowBtnText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+
+  // DATABASE SATURATION & DIAGNOSTICS
+  refreshDiagBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e0f2fe',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    gap: 4,
+  },
+  refreshDiagBtnText: {
+    fontSize: 11,
+    color: '#0284c7',
+    fontWeight: 'bold',
+  },
+  storageTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  storageUsageNum: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+  storageHealthPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.full,
+  },
+  storageHealthy: {
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#86efac',
+  },
+  storageModerate: {
+    backgroundColor: '#fef3c7',
+    borderWidth: 1,
+    borderColor: '#fcd34d',
+  },
+  storageCritical: {
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+  },
+  storageHealthPillText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  gaugeTrack: {
+    height: 10,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  gaugeFill: {
+    height: '100%',
+    borderRadius: 5,
+  },
+  storageAdviceText: {
+    fontSize: 11,
+    color: '#475569',
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  storageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  storageGridItem: {
+    flex: 1,
+    minWidth: '28%',
+    backgroundColor: '#f8fafc',
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+  },
+  storageGridLabel: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  storageGridVal: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginTop: 2,
+  },
+
+  // STORAGE ROUTING
+  routingItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  routingItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  routingItemTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1e293b',
+  },
+  routingPillRow: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  routingChoiceBtn: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+  },
+  routingChoiceBtnActive: {
+    backgroundColor: '#7c3aed',
+    borderColor: '#7c3aed',
+  },
+  routingChoiceText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#64748b',
+  },
+  routingChoiceTextActive: {
+    color: '#ffffff',
+  },
+  backupActionsContainer: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  backupBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  exportBackupBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#7c3aed',
+    paddingVertical: 10,
+    borderRadius: theme.borderRadius.md,
+  },
+  exportBackupBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  importBackupBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    paddingVertical: 10,
+    borderRadius: theme.borderRadius.md,
+  },
+  importBackupBtnText: {
+    color: theme.colors.primary,
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+
+  // EXCEL EXPORT STYLES
+  masterExcelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    padding: 14,
+    borderRadius: theme.borderRadius.md,
+    marginTop: 8,
+  },
+  masterExcelBtnTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  masterExcelBtnSub: {
+    fontSize: 10,
+    color: '#d1fae5',
+    marginTop: 2,
+  },
+  secondaryExcelRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  secondaryExcelBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#6ee7b7',
+    paddingVertical: 9,
+    borderRadius: theme.borderRadius.md,
+  },
+  secondaryExcelBtnText: {
+    color: '#059669',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+
+  // STORE MANAGEMENT GUIDE
+  viewGuideBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef3c7',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    gap: 4,
+  },
+  viewGuideBtnText: {
+    fontSize: 11,
+    color: '#d97706',
+    fontWeight: 'bold',
+  },
+  guideTeaserCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    borderRadius: theme.borderRadius.md,
+    padding: 14,
+    marginBottom: 16,
+  },
+  guideTeaserIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fef3c7',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  guideTeaserTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#92400e',
+    marginBottom: 2,
+  },
+  guideTeaserSub: {
+    fontSize: 11,
+    color: '#b45309',
+    lineHeight: 15,
+  },
+  guideNavTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: theme.borderRadius.full,
+    backgroundColor: '#f1f5f9',
+    marginRight: 6,
+  },
+  guideNavTabActive: {
+    backgroundColor: '#d97706',
+  },
+  guideNavTabText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#64748b',
+  },
+  guideNavTabTextActive: {
+    color: '#ffffff',
+  },
+  guideTabBody: {
+    backgroundColor: '#fafaf9',
+    padding: 12,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: '#e7e5e4',
+  },
+  guideCardHeading: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1c1917',
+    marginBottom: 10,
+  },
+  guideItemText: {
+    fontSize: 12,
+    color: '#44403c',
+    lineHeight: 18,
+    marginBottom: 8,
   },
 });
