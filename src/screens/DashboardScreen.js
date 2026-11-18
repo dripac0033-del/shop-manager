@@ -365,13 +365,6 @@ export default function DashboardScreen({ navigation }) {
           <Text style={styles.actionBtnText}>{t('suppliers') || 'Fournisseurs'}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.actionBtn, { backgroundColor: '#6366f1' }]}
-          onPress={() => navigation.navigate('Customization')}
-        >
-          <Ionicons name="color-wand-outline" size={26} color="#ffffff" />
-          <Text style={styles.actionBtnText}>{isRTL ? 'بدون كود' : 'Sans-Code'}</Text>
-        </TouchableOpacity>
 
         <TouchableOpacity 
           style={[styles.actionBtn, { backgroundColor: '#0ea5e9' }]}
