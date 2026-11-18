@@ -346,12 +346,50 @@ function MainAppContent() {
   );
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.warn('ErrorBoundary captured screen crash:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+          <Text style={styles.errorTitle}>Une erreur d'affichage est survenue</Text>
+          <Text style={styles.errorMessage}>
+            {this.state.error?.message || 'Erreur inconnue'}
+          </Text>
+          <TouchableOpacity
+            style={styles.errorBtn}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={styles.errorBtnText}>Actualiser / Réessayer</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppProvider>
-        <MainAppContent />
-      </AppProvider>
+      <ErrorBoundary>
+        <AppProvider>
+          <MainAppContent />
+        </AppProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -400,6 +438,39 @@ const styles = StyleSheet.create({
   headerBellBadgeText: {
     color: '#ffffff',
     fontSize: 9,
+    fontWeight: 'bold',
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    backgroundColor: '#ffffff',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorMessage: {
+    fontSize: 13,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 16,
+  },
+  errorBtn: {
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: theme.borderRadius.md,
+  },
+  errorBtnText: {
+    color: '#ffffff',
+    fontSize: 14,
     fontWeight: 'bold',
   },
 });

@@ -39,6 +39,7 @@ export default function SettingsScreen() {
     services = [],
     repairs = [],
     iptvCodes = [],
+    suppliers = [],
     t,
     isRTL,
     // Authentication & Users
@@ -107,10 +108,10 @@ export default function SettingsScreen() {
     openSupplierSession,
   } = useApp();
 
-  const [name, setName] = useState(storeInfo.name || '');
-  const [phone, setPhone] = useState(storeInfo.phone || '');
-  const [address, setAddress] = useState(storeInfo.address || '');
-  const [footer, setFooter] = useState(storeInfo.footer || '');
+  const [name, setName] = useState(storeInfo?.name || '');
+  const [phone, setPhone] = useState(storeInfo?.phone || '');
+  const [address, setAddress] = useState(storeInfo?.address || '');
+  const [footer, setFooter] = useState(storeInfo?.footer || '');
   const [toastMessage, setToastMessage] = useState('');
 
   // Firebase form fields
@@ -971,7 +972,7 @@ export default function SettingsScreen() {
                 {t('suppliers') || 'Fournisseurs & Commandes d\'Achat'}
               </Text>
               <Text style={styles.moduleNavDesc}>
-                {suppliers.length} fournisseurs • Suivi des dettes et bons d'entrée
+                {(suppliers || []).length} fournisseurs • Suivi des dettes et bons d'entrée
               </Text>
             </View>
             <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#94a3b8" />
