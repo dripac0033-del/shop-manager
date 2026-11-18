@@ -28,6 +28,7 @@ export default function ExpensesScreen() {
     firebaseConnected,
     syncStatus,
     lastSyncTime,
+    customPresets = {},
   } = useApp();
 
   const [addModalVisible, setAddModalVisible] = useState(false);
@@ -44,7 +45,7 @@ export default function ExpensesScreen() {
   const [editAmount, setEditAmount] = useState('');
   const [editCategory, setEditCategory] = useState('other');
 
-  const categories = [
+  const baseCategories = [
     { key: 'rent', icon: 'business', label: t('rent') },
     { key: 'electricity', icon: 'flash', label: t('electricity') },
     { key: 'salary', icon: 'people', label: t('salary') },
@@ -52,6 +53,14 @@ export default function ExpensesScreen() {
     { key: 'maintenance', icon: 'construct', label: t('maintenance') },
     { key: 'other', icon: 'ellipsis-horizontal', label: t('other') },
   ];
+
+  const customCats = (customPresets?.customExpenseCategories || []).map((cName) => ({
+    key: cName,
+    icon: 'wallet',
+    label: cName,
+  }));
+
+  const categories = [...baseCategories, ...customCats];
 
   const totalExpenses = (expenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
 

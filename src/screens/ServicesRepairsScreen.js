@@ -32,6 +32,7 @@ export default function ServicesRepairsScreen({ navigation }) {
     completeRepairAndPay,
     isRTL,
     storeInfo,
+    customPresets = {},
   } = useApp();
 
   // Active Sub-Tab: 'services' | 'repairs'
@@ -694,6 +695,26 @@ export default function ServicesRepairsScreen({ navigation }) {
                 value={repairDevice}
                 onChangeText={setRepairDevice}
               />
+              {/* Quick device chips */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+                {(customPresets?.customRepairDevices || []).map((dev, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{
+                      backgroundColor: '#eff6ff',
+                      borderWidth: 1,
+                      borderColor: '#bfdbfe',
+                      paddingVertical: 4,
+                      paddingHorizontal: 8,
+                      borderRadius: 14,
+                      marginRight: 6,
+                    }}
+                    onPress={() => setRepairDevice(dev)}
+                  >
+                    <Text style={{ fontSize: 11, color: '#1d4ed8', fontWeight: '500' }}>{dev}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
 
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('issueDescription')} *</Text>
               <TextInput
@@ -704,6 +725,28 @@ export default function ServicesRepairsScreen({ navigation }) {
                 value={repairIssue}
                 onChangeText={setRepairIssue}
               />
+              {/* Quick issue chips */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 6 }}>
+                {(customPresets?.customRepairIssues || []).map((iss, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={{
+                      backgroundColor: '#fffbeb',
+                      borderWidth: 1,
+                      borderColor: '#fde68a',
+                      paddingVertical: 4,
+                      paddingHorizontal: 8,
+                      borderRadius: 14,
+                      marginRight: 6,
+                    }}
+                    onPress={() => {
+                      setRepairIssue((prev) => (prev ? `${prev}, ${iss}` : iss));
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, color: '#b45309', fontWeight: '500' }}>{iss}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
 
               {/* Status Picker */}
               <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('repairStatus')}</Text>

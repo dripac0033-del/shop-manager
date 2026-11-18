@@ -165,6 +165,100 @@ const DEFAULT_CATEGORIES = [
   { id: 'cat_6', nameFr: 'Divers', nameAr: 'متنوعات', color: '#64748b' },
 ];
 
+// Default starter suppliers
+export const DEFAULT_SUPPLIERS = [
+  {
+    id: 'sup_1',
+    name: 'Grossiste Accessoires & Pièces',
+    company: 'Electro Grossiste DZ',
+    phone: '0550123456',
+    address: 'Belfort, Alger',
+    category: 'Accessoires & Pièces',
+    debt: 0,
+    notes: 'Fournisseur principal accessoires mobiles, câbles et écrans',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'sup_2',
+    name: 'Fournisseur Cartes & Serveurs',
+    company: 'Serveurs Pro DZ',
+    phone: '0661987654',
+    address: 'Alger',
+    category: 'Abonnements & Codes',
+    debt: 0,
+    notes: 'Fournisseur officiel abonnements et serveurs IPTV',
+    createdAt: new Date().toISOString(),
+  },
+];
+
+// Default No-Code customizable presets
+export const DEFAULT_CUSTOM_PRESETS = {
+  quickSaleItems: [
+    { id: 'qk_1', nameFr: 'Recharge 100 DA', nameAr: 'تعبئة رصيد 100 دج', price: 100, icon: 'flash', color: '#10b981', category: 'Services' },
+    { id: 'qk_2', nameFr: 'Recharge 500 DA', nameAr: 'تعبئة رصيد 500 دج', price: 500, icon: 'flash', color: '#3b82f6', category: 'Services' },
+    { id: 'qk_3', nameFr: 'Recharge 1000 DA', nameAr: 'تعبئة رصيد 1000 دج', price: 1000, icon: 'flash', color: '#8b5cf6', category: 'Services' },
+    { id: 'qk_4', nameFr: 'Verre Trempé Incassable', nameAr: 'زجاج حماية شاشة', price: 300, icon: 'shield-checkmark', color: '#f59e0b', category: 'Accessoires' },
+    { id: 'qk_5', nameFr: 'Câble Charge Rapide', nameAr: 'كابل شحن سريع', price: 500, icon: 'hardware-chip', color: '#06b6d4', category: 'Accessoires' },
+    { id: 'qk_6', nameFr: 'Flash & Déblocage', nameAr: 'فلاش وفك قفل فوري', price: 800, icon: 'construct', color: '#ef4444', category: 'Services' },
+    { id: 'qk_7', nameFr: 'Livraison à Domicile', nameAr: 'توصيل للمنزل', price: 400, icon: 'bicycle', color: '#6366f1', category: 'Divers' },
+    { id: 'qk_8', nameFr: 'Pochette Silicone', nameAr: 'غطاء حماية سيليكون', price: 600, icon: 'phone-portrait', color: '#ec4899', category: 'Accessoires' },
+  ],
+  customExpenseCategories: [
+    'Loyer Magasin',
+    'Facture Électricité (Sonelgaz)',
+    'Facture Internet & Téléphone',
+    'Salaires & Avances',
+    'Transport & Déplacements',
+    'Fournitures & Emballages',
+    'Maintenance & Équipements',
+    'Publicité & Marketing',
+    'Divers & Imprévus',
+  ],
+  customRepairDevices: [
+    'iPhone / iPad',
+    'Samsung Galaxy',
+    'Xiaomi / Redmi / Poco',
+    'Oppo / Realme',
+    'Huawei / Honor',
+    'PC Portable / Bureau',
+    'Démodulateur Satellite',
+    'Téléviseur Smart TV',
+    'Autre Appareil',
+  ],
+  customRepairIssues: [
+    'Écran cassé / Pas d\'affichage',
+    'Batterie déchargée / Gonflée',
+    'Connecteur de charge défectueux',
+    'Problème Audio / Micro / Écouteur',
+    'Tombé dans l\'eau / Oxydation',
+    'Blocage système / Flashage ROM',
+    'Caméra avant ou arrière HS',
+    'Bouton Power / Volume bloqué',
+    'Problème Réseau / Wi-Fi',
+  ],
+  customPaymentMethods: [
+    { id: 'cash', labelFr: 'Espèces (Comptant)', labelAr: 'نقداً (كاش)', icon: 'cash-outline', active: true },
+    { id: 'credit', labelFr: 'Crédit (Dette)', labelAr: 'دين (على الحساب)', icon: 'time-outline', active: true },
+    { id: 'baridimob', labelFr: 'BaridiMob', labelAr: 'بريدي موب', icon: 'card-outline', active: true },
+    { id: 'ccp', labelFr: 'Virement CCP', labelAr: 'حوالة بريدية CCP', icon: 'business-outline', active: true },
+    { id: 'cib', labelFr: 'Carte Dahabia / CIB', labelAr: 'بطاقة ذهبية / بنكية', icon: 'card', active: true },
+  ],
+  receiptConfig: {
+    showLogo: true,
+    showBarcode: true,
+    showFooter: true,
+    warrantyNoticeFr: 'Garantie valable uniquement avec ce ticket de caisse.',
+    warrantyNoticeAr: 'الضمان صالح فقط بتقديم هذا الوصل.',
+    customNote: 'Merci pour votre confiance !',
+  },
+};
+
+// Default cash drawer structure
+export const DEFAULT_CASH_DRAWER = {
+  activeSession: null,
+  sessionsHistory: [],
+};
+
 // Session timeout default: 30 minutes in milliseconds
 const DEFAULT_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
@@ -183,6 +277,10 @@ export const AppProvider = ({ children }) => {
   const [repairs, setRepairs] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [users, setUsers] = useState([DEFAULT_ADMIN_USER]);
+  const [suppliers, setSuppliers] = useState(DEFAULT_SUPPLIERS);
+  const [purchases, setPurchases] = useState([]);
+  const [customPresets, setCustomPresets] = useState(DEFAULT_CUSTOM_PRESETS);
+  const [cashDrawer, setCashDrawer] = useState(DEFAULT_CASH_DRAWER);
   const [isReady, setIsReady] = useState(false);
 
   // Authentication & Session
@@ -380,6 +478,52 @@ export const AppProvider = ({ children }) => {
           try {
             const inf = JSON.parse(storedInfo);
             if (inf && typeof inf === 'object') setStoreInfo(inf);
+          } catch (e) {}
+        }
+
+        // Hydrate Suppliers
+        const storedSuppliers = await AsyncStorage.getItem('@store_suppliers');
+        if (storedSuppliers) {
+          try {
+            const sup = JSON.parse(storedSuppliers);
+            if (Array.isArray(sup) && sup.length > 0) setSuppliers(sup);
+          } catch (e) {}
+        }
+
+        // Hydrate Purchases
+        const storedPurchases = await AsyncStorage.getItem('@store_purchases');
+        if (storedPurchases) {
+          try {
+            const pur = JSON.parse(storedPurchases);
+            if (Array.isArray(pur)) setPurchases(pur);
+          } catch (e) {}
+        }
+
+        // Hydrate No-Code Custom Presets
+        const storedPresets = await AsyncStorage.getItem('@store_custom_presets');
+        if (storedPresets) {
+          try {
+            const cpr = JSON.parse(storedPresets);
+            if (cpr && typeof cpr === 'object') {
+              setCustomPresets((prev) => ({
+                ...prev,
+                ...cpr,
+                quickSaleItems: Array.isArray(cpr.quickSaleItems) && cpr.quickSaleItems.length > 0 ? cpr.quickSaleItems : prev.quickSaleItems,
+                customExpenseCategories: Array.isArray(cpr.customExpenseCategories) && cpr.customExpenseCategories.length > 0 ? cpr.customExpenseCategories : prev.customExpenseCategories,
+                customRepairDevices: Array.isArray(cpr.customRepairDevices) && cpr.customRepairDevices.length > 0 ? cpr.customRepairDevices : prev.customRepairDevices,
+                customRepairIssues: Array.isArray(cpr.customRepairIssues) && cpr.customRepairIssues.length > 0 ? cpr.customRepairIssues : prev.customRepairIssues,
+                customPaymentMethods: Array.isArray(cpr.customPaymentMethods) && cpr.customPaymentMethods.length > 0 ? cpr.customPaymentMethods : prev.customPaymentMethods,
+              }));
+            }
+          } catch (e) {}
+        }
+
+        // Hydrate Cash Drawer
+        const storedDrawer = await AsyncStorage.getItem('@store_cash_drawer');
+        if (storedDrawer) {
+          try {
+            const cd = JSON.parse(storedDrawer);
+            if (cd && typeof cd === 'object') setCashDrawer(cd);
           } catch (e) {}
         }
 
@@ -2648,6 +2792,484 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  // ==============================================================
+  // SUPPLIERS & PURCHASES MANAGEMENT
+  // ==============================================================
+  const addSupplier = async (supplierData) => {
+    touchActivity();
+    const newSupplier = {
+      ...supplierData,
+      id: 'sup_' + Date.now().toString(),
+      debt: Number(supplierData.debt || 0),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const updated = [newSupplier, ...suppliers];
+    setSuppliers(updated);
+    saveState('@store_suppliers', updated);
+    return newSupplier;
+  };
+
+  const updateSupplier = async (id, fields) => {
+    touchActivity();
+    let target = null;
+    const updated = suppliers.map((s) => {
+      if (s.id === id) {
+        target = {
+          ...s,
+          ...fields,
+          debt: fields.debt !== undefined ? Number(fields.debt) : s.debt,
+          updatedAt: new Date().toISOString(),
+        };
+        return target;
+      }
+      return s;
+    });
+    setSuppliers(updated);
+    saveState('@store_suppliers', updated);
+    return target;
+  };
+
+  const deleteSupplier = async (id) => {
+    touchActivity();
+    const updated = suppliers.filter((s) => s.id !== id);
+    setSuppliers(updated);
+    saveState('@store_suppliers', updated);
+  };
+
+  const recordSupplierPayment = async (supplierId, { amount, notes, paymentMethod }) => {
+    touchActivity();
+    const numAmount = Number(amount || 0);
+    let targetSupplier = null;
+    const updated = suppliers.map((s) => {
+      if (s.id === supplierId) {
+        const newDebt = Math.max(0, Number(s.debt || 0) - numAmount);
+        targetSupplier = { ...s, debt: newDebt, updatedAt: new Date().toISOString() };
+        return targetSupplier;
+      }
+      return s;
+    });
+    setSuppliers(updated);
+    saveState('@store_suppliers', updated);
+
+    // Record cash-out in transactions
+    await recordTransaction({
+      type: 'supplier_payment',
+      amount: -numAmount,
+      referenceId: supplierId,
+      description: `Règlement Fournisseur (${targetSupplier?.name || 'Fournisseur'}) - ${notes || 'Versement'}`,
+    });
+
+    return targetSupplier;
+  };
+
+  const addPurchaseOrder = async ({ supplierId, supplierName, total, paidAmount, invoiceRef, items, notes }) => {
+    touchActivity();
+    const numTotal = Number(total || 0);
+    const numPaid = Number(paidAmount || 0);
+    const debtAdded = Math.max(0, numTotal - numPaid);
+
+    const newPurchase = {
+      id: 'pur_' + Date.now().toString(),
+      date: new Date().toISOString(),
+      supplierId: supplierId || '',
+      supplierName: supplierName || 'Fournisseur',
+      total: numTotal,
+      paidAmount: numPaid,
+      remainingDebt: debtAdded,
+      invoiceRef: invoiceRef || '',
+      items: items || [],
+      notes: notes || '',
+      createdBy: currentUser?.username || 'admin',
+    };
+
+    const updatedPurchases = [newPurchase, ...purchases];
+    setPurchases(updatedPurchases);
+    saveState('@store_purchases', updatedPurchases);
+
+    // If supplierId provided and there's remaining debt, adjust supplier's balance
+    if (supplierId && debtAdded > 0) {
+      const updatedSuppliers = suppliers.map((s) => {
+        if (s.id === supplierId) {
+          return { ...s, debt: Number(s.debt || 0) + debtAdded, updatedAt: new Date().toISOString() };
+        }
+        return s;
+      });
+      setSuppliers(updatedSuppliers);
+      saveState('@store_suppliers', updatedSuppliers);
+    }
+
+    // If cash was paid out, record transaction
+    if (numPaid > 0) {
+      await recordTransaction({
+        type: 'supplier_purchase',
+        amount: -numPaid,
+        referenceId: newPurchase.id,
+        description: `Achat Fournisseur (${supplierName || 'Fournisseur'}) - Facture #${invoiceRef || newPurchase.id.slice(-6)}`,
+      });
+    }
+
+    return newPurchase;
+  };
+
+  // ==============================================================
+  // CASH DRAWER & Z-REPORT (CLÔTURE DE CAISSE)
+  // ==============================================================
+  const openCashDrawer = async ({ openingFloat = 0, notes = '' }) => {
+    touchActivity();
+    const session = {
+      id: 'shift_' + Date.now().toString(),
+      status: 'open',
+      openedAt: new Date().toISOString(),
+      openingFloat: Number(openingFloat || 0),
+      openedBy: currentUser?.username || 'admin',
+      cashIns: [],
+      cashOuts: [],
+      notes: notes || '',
+    };
+    const updatedDrawer = {
+      ...cashDrawer,
+      activeSession: session,
+    };
+    setCashDrawer(updatedDrawer);
+    saveState('@store_cash_drawer', updatedDrawer);
+    return session;
+  };
+
+  const recordCashMovement = async ({ type, amount, reason }) => {
+    touchActivity();
+    if (!cashDrawer.activeSession) {
+      throw new Error('Aucune session de caisse n\'est actuellement ouverte.');
+    }
+    const movement = {
+      id: 'mov_' + Date.now().toString(),
+      time: new Date().toISOString(),
+      type, // 'cash_in' | 'cash_out'
+      amount: Number(amount || 0),
+      reason: reason || '',
+      user: currentUser?.username || 'admin',
+    };
+
+    const currentSession = cashDrawer.activeSession;
+    const updatedSession = {
+      ...currentSession,
+      cashIns: type === 'cash_in' ? [...(currentSession.cashIns || []), movement] : (currentSession.cashIns || []),
+      cashOuts: type === 'cash_out' ? [...(currentSession.cashOuts || []), movement] : (currentSession.cashOuts || []),
+    };
+
+    const updatedDrawer = {
+      ...cashDrawer,
+      activeSession: updatedSession,
+    };
+    setCashDrawer(updatedDrawer);
+    saveState('@store_cash_drawer', updatedDrawer);
+    return movement;
+  };
+
+  const closeCashDrawer = async ({ countedCash = 0, denominations = {}, notes = '' }) => {
+    touchActivity();
+    if (!cashDrawer.activeSession) {
+      throw new Error('Aucune session de caisse n\'est ouverte.');
+    }
+
+    const session = cashDrawer.activeSession;
+    const shiftStart = session.openedAt;
+    const shiftEnd = new Date().toISOString();
+
+    // Compute cash transactions since shiftStart
+    const shiftSales = (sales || []).filter((s) => (s.date || '') >= shiftStart && s.paymentMethod === 'cash');
+    const cashSalesTotal = shiftSales.reduce((sum, s) => sum + Number(s.total || 0), 0);
+
+    const shiftDebtPayments = (transactions || [])
+      .filter((tx) => (tx.date || '') >= shiftStart && tx.type === 'debt_payment')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+    const shiftRepairPayments = (transactions || [])
+      .filter((tx) => (tx.date || '') >= shiftStart && tx.type === 'repair_payment')
+      .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
+
+    const totalCashIns = (session.cashIns || []).reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const totalCashOuts = (session.cashOuts || []).reduce((sum, m) => sum + Number(m.amount || 0), 0);
+
+    const shiftExpenses = (expenses || [])
+      .filter((e) => (e.date || '') >= shiftStart)
+      .reduce((sum, e) => sum + Number(e.amount || 0), 0);
+
+    const theoreticalCash =
+      Number(session.openingFloat || 0) +
+      cashSalesTotal +
+      shiftDebtPayments +
+      shiftRepairPayments +
+      totalCashIns -
+      shiftExpenses -
+      totalCashOuts;
+
+    const physicalCash = Number(countedCash || 0);
+    const difference = physicalCash - theoreticalCash;
+
+    const closedSession = {
+      ...session,
+      status: 'closed',
+      closedAt: shiftEnd,
+      closedBy: currentUser?.username || 'admin',
+      closingNotes: notes || '',
+      denominations: denominations || {},
+      summary: {
+        openingFloat: Number(session.openingFloat || 0),
+        cashSalesTotal,
+        shiftDebtPayments,
+        shiftRepairPayments,
+        totalCashIns,
+        totalCashOuts,
+        shiftExpenses,
+        theoreticalCash,
+        physicalCash,
+        difference,
+      },
+    };
+
+    const updatedDrawer = {
+      activeSession: null,
+      sessionsHistory: [closedSession, ...(cashDrawer.sessionsHistory || [])],
+    };
+    setCashDrawer(updatedDrawer);
+    saveState('@store_cash_drawer', updatedDrawer);
+    return closedSession;
+  };
+
+  // ==============================================================
+  // NO-CODE STUDIO & DYNAMIC PRESETS
+  // ==============================================================
+  const addQuickSaleItem = async (item) => {
+    touchActivity();
+    const newItem = {
+      ...item,
+      id: 'qk_' + Date.now().toString(),
+      price: Number(item.price || 0),
+      createdAt: new Date().toISOString(),
+    };
+    const updatedPresets = {
+      ...customPresets,
+      quickSaleItems: [...(customPresets.quickSaleItems || []), newItem],
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+    return newItem;
+  };
+
+  const updateQuickSaleItem = async (id, fields) => {
+    touchActivity();
+    const updatedItems = (customPresets.quickSaleItems || []).map((it) =>
+      it.id === id ? { ...it, ...fields, price: Number(fields.price || it.price) } : it
+    );
+    const updatedPresets = { ...customPresets, quickSaleItems: updatedItems };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const deleteQuickSaleItem = async (id) => {
+    touchActivity();
+    const updatedItems = (customPresets.quickSaleItems || []).filter((it) => it.id !== id);
+    const updatedPresets = { ...customPresets, quickSaleItems: updatedItems };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const addCustomExpenseCategory = async (catName) => {
+    touchActivity();
+    const clean = String(catName || '').trim();
+    if (!clean) return;
+    const existing = customPresets.customExpenseCategories || [];
+    if (existing.includes(clean)) return;
+    const updatedPresets = {
+      ...customPresets,
+      customExpenseCategories: [...existing, clean],
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const deleteCustomExpenseCategory = async (catName) => {
+    touchActivity();
+    const updatedPresets = {
+      ...customPresets,
+      customExpenseCategories: (customPresets.customExpenseCategories || []).filter((c) => c !== catName),
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const addCustomRepairDevice = async (deviceName) => {
+    touchActivity();
+    const clean = String(deviceName || '').trim();
+    if (!clean) return;
+    const existing = customPresets.customRepairDevices || [];
+    if (existing.includes(clean)) return;
+    const updatedPresets = {
+      ...customPresets,
+      customRepairDevices: [...existing, clean],
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const deleteCustomRepairDevice = async (deviceName) => {
+    touchActivity();
+    const updatedPresets = {
+      ...customPresets,
+      customRepairDevices: (customPresets.customRepairDevices || []).filter((d) => d !== deviceName),
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const addCustomRepairIssue = async (issueName) => {
+    touchActivity();
+    const clean = String(issueName || '').trim();
+    if (!clean) return;
+    const existing = customPresets.customRepairIssues || [];
+    if (existing.includes(clean)) return;
+    const updatedPresets = {
+      ...customPresets,
+      customRepairIssues: [...existing, clean],
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const deleteCustomRepairIssue = async (issueName) => {
+    touchActivity();
+    const updatedPresets = {
+      ...customPresets,
+      customRepairIssues: (customPresets.customRepairIssues || []).filter((i) => i !== issueName),
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const addCustomPaymentMethod = async ({ labelFr, labelAr, icon }) => {
+    touchActivity();
+    const id = 'pm_' + Date.now().toString();
+    const newMethod = {
+      id,
+      labelFr: labelFr || 'Autre',
+      labelAr: labelAr || labelFr || 'أخرى',
+      icon: icon || 'card-outline',
+      active: true,
+    };
+    const updatedPresets = {
+      ...customPresets,
+      customPaymentMethods: [...(customPresets.customPaymentMethods || []), newMethod],
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+    return newMethod;
+  };
+
+  const togglePaymentMethod = async (id) => {
+    touchActivity();
+    const updatedMethods = (customPresets.customPaymentMethods || []).map((pm) =>
+      pm.id === id ? { ...pm, active: !pm.active } : pm
+    );
+    const updatedPresets = { ...customPresets, customPaymentMethods: updatedMethods };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  const updateReceiptConfig = async (config) => {
+    touchActivity();
+    const updatedPresets = {
+      ...customPresets,
+      receiptConfig: { ...(customPresets.receiptConfig || {}), ...config },
+    };
+    setCustomPresets(updatedPresets);
+    saveState('@store_custom_presets', updatedPresets);
+  };
+
+  // Bulk Data Importer for CSV / Text pasted by user without coding
+  const bulkImportData = async ({ type, items }) => {
+    touchActivity();
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Aucune donnée valide à importer.');
+    }
+
+    if (type === 'products') {
+      const formatted = items.map((it, idx) => ({
+        id: it.id || `p_${Date.now()}_${idx}`,
+        nameFr: it.nameFr || it.name || 'Produit sans nom',
+        nameAr: it.nameAr || '',
+        barcode: it.barcode || (it.barcode === false ? '' : `${Date.now()}${idx}`),
+        category: it.category || 'Alimentation',
+        buyPrice: Number(it.buyPrice || 0),
+        sellPrice: Number(it.sellPrice || 0),
+        stock: Number(it.stock || 0),
+        minStock: Number(it.minStock || 5),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+      const merged = [...products, ...formatted];
+      setProducts(merged);
+      await saveState('@store_products', merged);
+      return { count: formatted.length };
+    }
+
+    if (type === 'customers') {
+      const formatted = items.map((it, idx) => ({
+        id: it.id || `c_${Date.now()}_${idx}`,
+        name: it.name || 'Client',
+        phone: it.phone || '',
+        address: it.address || '',
+        debt: Number(it.debt || 0),
+        description: it.description || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }));
+      const merged = [...customers, ...formatted];
+      setCustomers(merged);
+      await saveState('@store_customers', merged);
+      return { count: formatted.length };
+    }
+
+    if (type === 'suppliers') {
+      const formatted = items.map((it, idx) => ({
+        id: it.id || `sup_${Date.now()}_${idx}`,
+        name: it.name || it.company || 'Fournisseur',
+        company: it.company || it.name || 'Fournisseur',
+        phone: it.phone || '',
+        address: it.address || '',
+        category: it.category || 'Général',
+        debt: Number(it.debt || 0),
+        notes: it.notes || '',
+        createdAt: new Date().toISOString(),
+      }));
+      const merged = [...suppliers, ...formatted];
+      setSuppliers(merged);
+      await saveState('@store_suppliers', merged);
+      return { count: formatted.length };
+    }
+
+    if (type === 'quickKeys') {
+      const formatted = items.map((it, idx) => ({
+        id: `qk_${Date.now()}_${idx}`,
+        nameFr: it.nameFr || it.name || 'Touche',
+        nameAr: it.nameAr || '',
+        price: Number(it.price || 0),
+        icon: it.icon || 'flash',
+        color: it.color || '#3b82f6',
+        category: it.category || 'Divers',
+      }));
+      const updatedPresets = {
+        ...customPresets,
+        quickSaleItems: [...(customPresets.quickSaleItems || []), ...formatted],
+      };
+      setCustomPresets(updatedPresets);
+      await saveState('@store_custom_presets', updatedPresets);
+      return { count: formatted.length };
+    }
+
+    throw new Error('Type d\'importation non reconnu: ' + type);
+  };
+
   // Wipe all data completely (Local + Firebase)
   const wipeAllData = async () => {
     isLocalUpdateRef.current = true;
@@ -2659,6 +3281,10 @@ export const AppProvider = ({ children }) => {
     setTransactions([]);
     setServices([]);
     setRepairs([]);
+    setSuppliers(DEFAULT_SUPPLIERS);
+    setPurchases([]);
+    setCustomPresets(DEFAULT_CUSTOM_PRESETS);
+    setCashDrawer(DEFAULT_CASH_DRAWER);
 
     await AsyncStorage.removeItem('@store_products');
     await AsyncStorage.removeItem('@store_categories');
@@ -2668,6 +3294,10 @@ export const AppProvider = ({ children }) => {
     await AsyncStorage.removeItem('@store_transactions');
     await AsyncStorage.removeItem('@store_services');
     await AsyncStorage.removeItem('@store_repairs');
+    await AsyncStorage.removeItem('@store_suppliers');
+    await AsyncStorage.removeItem('@store_purchases');
+    await AsyncStorage.removeItem('@store_custom_presets');
+    await AsyncStorage.removeItem('@store_cash_drawer');
 
     if (isFirebaseReady()) {
       try {
@@ -2864,6 +3494,10 @@ export const AppProvider = ({ children }) => {
       repairs,
       services,
       iptvCodes,
+      suppliers,
+      purchases,
+      customPresets,
+      cashDrawer,
       storageRouting,
     };
 
@@ -2925,6 +3559,22 @@ export const AppProvider = ({ children }) => {
       if (Array.isArray(parsed.iptvCodes)) {
         setIptvCodes(parsed.iptvCodes);
         await AsyncStorage.setItem('@store_iptv_codes', JSON.stringify(parsed.iptvCodes));
+      }
+      if (Array.isArray(parsed.suppliers)) {
+        setSuppliers(parsed.suppliers);
+        await AsyncStorage.setItem('@store_suppliers', JSON.stringify(parsed.suppliers));
+      }
+      if (Array.isArray(parsed.purchases)) {
+        setPurchases(parsed.purchases);
+        await AsyncStorage.setItem('@store_purchases', JSON.stringify(parsed.purchases));
+      }
+      if (parsed.customPresets && typeof parsed.customPresets === 'object') {
+        setCustomPresets(parsed.customPresets);
+        await AsyncStorage.setItem('@store_custom_presets', JSON.stringify(parsed.customPresets));
+      }
+      if (parsed.cashDrawer && typeof parsed.cashDrawer === 'object') {
+        setCashDrawer(parsed.cashDrawer);
+        await AsyncStorage.setItem('@store_cash_drawer', JSON.stringify(parsed.cashDrawer));
       }
       if (parsed.storeInfo && typeof parsed.storeInfo === 'object') {
         setStoreInfo(parsed.storeInfo);
@@ -3067,6 +3717,37 @@ export const AppProvider = ({ children }) => {
         openSupplierSession,
         getSupplierAutomationScript,
         purchaseIptvCodeDirect,
+
+        // Fournisseurs & Achats
+        suppliers,
+        purchases,
+        addSupplier,
+        updateSupplier,
+        deleteSupplier,
+        recordSupplierPayment,
+        addPurchaseOrder,
+
+        // Caisse & Clôture Z
+        cashDrawer,
+        openCashDrawer,
+        recordCashMovement,
+        closeCashDrawer,
+
+        // Studio Sans-Code & Personnalisation Dynamique
+        customPresets,
+        addQuickSaleItem,
+        updateQuickSaleItem,
+        deleteQuickSaleItem,
+        addCustomExpenseCategory,
+        deleteCustomExpenseCategory,
+        addCustomRepairDevice,
+        deleteCustomRepairDevice,
+        addCustomRepairIssue,
+        deleteCustomRepairIssue,
+        addCustomPaymentMethod,
+        togglePaymentMethod,
+        updateReceiptConfig,
+        bulkImportData,
 
         // Real-Time Auto-Sync Engine
         syncMetrics,

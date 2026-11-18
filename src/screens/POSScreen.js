@@ -19,11 +19,14 @@ import { Ionicons } from '@expo/vector-icons';
 import CameraBarcodeScannerModal from '../components/CameraBarcodeScannerModal';
 import ProfessionalReceiptModal from '../components/ProfessionalReceiptModal';
 import { printReceiptDirectly } from '../services/receiptPrinter';
+import { useNavigation } from '@react-navigation/native';
 
 export default function POSScreen() {
+  const navigation = useNavigation();
   const {
     t,
     formatMoney,
+    currency = 'DA',
     products = [],
     categories = [],
     customers = [],
@@ -31,6 +34,7 @@ export default function POSScreen() {
     isRTL,
     storeInfo,
     currentUser,
+    customPresets = {},
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,6 +66,66 @@ export default function POSScreen() {
   const [paymentMethod, setPaymentMethod] = useState('cash'); // 'cash' | 'credit' | 'partial'
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [paidAmountInput, setPaidAmountInput] = useState('');
+
+  // Express Custom Item State
+  const [customItemModalVisible, setCustomItemModalVisible] = useState(false);
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemPrice, setCustomItemPrice] = useState('');
+  const [customItemQty, setCustomItemQty] = useState('1');
+
+  const handleAddCustomItem = () => {
+    if (!customItemName.trim()) {
+      showToast(isRTL ? 'يرجى إدخال اسم المادة' : 'Veuillez saisir le nom de l\'article.');
+      return;
+    }
+    const priceNum = Number(customItemPrice) || 0;
+    const qtyNum = Number(customItemQty) || 1;
+    const customProd = {
+      id: 'cst_' + Date.now().toString(),
+      nameFr: customItemName.trim(),
+      nameAr: '',
+      sellPrice: priceNum,
+      buyPrice: 0,
+      stock: 9999,
+      isCustom: true,
+    };
+    const existingIndex = cart.findIndex(
+      (item) => item.nameFr === customProd.nameFr && item.sellPrice === customProd.sellPrice
+    );
+    if (existingIndex > -1) {
+      const newCart = [...cart];
+      newCart[existingIndex].quantity += qtyNum;
+      setCart(newCart);
+    } else {
+      setCart([...cart, { ...customProd, quantity: qtyNum }]);
+    }
+    setCustomItemModalVisible(false);
+    setCustomItemName('');
+    setCustomItemPrice('');
+    setCustomItemQty('1');
+    showToast(isRTL ? 'تمت إضافة المادة إلى السلة' : 'Article ajouté au panier !');
+  };
+
+  const handleAddQuickKeyToCart = (qk) => {
+    const customProd = {
+      id: qk.id || ('qk_' + Date.now().toString()),
+      nameFr: qk.nameFr,
+      nameAr: qk.nameAr,
+      sellPrice: Number(qk.price || 0),
+      buyPrice: 0,
+      stock: 9999,
+      isQuickKey: true,
+    };
+    const existingIndex = cart.findIndex((item) => item.id === customProd.id);
+    if (existingIndex > -1) {
+      const newCart = [...cart];
+      newCart[existingIndex].quantity += 1;
+      setCart(newCart);
+    } else {
+      setCart([...cart, { ...customProd, quantity: 1 }]);
+    }
+    showToast(`+1 ${qk.nameFr}`);
+  };
 
   const validProducts = Array.isArray(products) ? products : [];
 
@@ -390,6 +454,15 @@ export default function POSScreen() {
           <Ionicons name="camera-outline" size={20} color="#ffffff" />
           <Text style={styles.cameraScanBtnText}>{isRTL ? 'ماسح' : 'Scanner'}</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.expressCustomBtn}
+          onPress={() => setCustomItemModalVisible(true)}
+          title="Article Express"
+        >
+          <Ionicons name="flash" size={17} color="#ffffff" />
+          <Text style={styles.expressCustomBtnText}>{isRTL ? 'مادة سريعة' : 'Express'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Instant Scan Toast */}
@@ -468,6 +541,36 @@ export default function POSScreen() {
           ))}
         </ScrollView>
       </View>
+
+      {/* Quick Sale Keys Bar (No-Code Dynamic Presets) */}
+      {(customPresets?.quickSaleItems || []).length > 0 && (
+        <View style={styles.quickKeysContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickKeysScroll}>
+            {(customPresets?.quickSaleItems || []).map((qk) => (
+              <TouchableOpacity
+                key={qk.id}
+                style={[styles.quickKeyChip, { borderColor: qk.color || '#3b82f6' }]}
+                onPress={() => handleAddQuickKeyToCart(qk)}
+              >
+                <Ionicons name={qk.icon || 'flash'} size={14} color={qk.color || '#3b82f6'} style={{ marginRight: 4 }} />
+                <Text style={styles.quickKeyChipName}>{qk.nameFr}</Text>
+                <Text style={[styles.quickKeyChipPrice, { color: qk.color || '#3b82f6' }]}>
+                  {formatMoney(qk.price)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.quickKeyAddMoreChip}
+              onPress={() => navigation.navigate('Customization')}
+            >
+              <Ionicons name="settings-outline" size={14} color="#64748b" />
+              <Text style={styles.quickKeyAddMoreText}>
+                {isRTL ? 'تخصيص' : 'Gérer'}
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      )}
 
       {/* Products Grid */}
       <FlatList
@@ -734,12 +837,62 @@ export default function POSScreen() {
                     {t('partial')}
                   </Text>
                 </TouchableOpacity>
+
+                {/* Dynamic Custom Payment Methods */}
+                {(customPresets?.customPaymentMethods || [])
+                  .filter((pm) => pm.active && pm.id !== 'cash' && pm.id !== 'credit' && pm.id !== 'partial')
+                  .map((pm) => (
+                    <TouchableOpacity
+                      key={pm.id}
+                      style={[
+                        styles.methodBtn,
+                        paymentMethod === pm.id && styles.methodBtnActive,
+                      ]}
+                      onPress={() => setPaymentMethod(pm.id)}
+                    >
+                      <Ionicons
+                        name={pm.icon || 'card'}
+                        size={20}
+                        color={paymentMethod === pm.id ? '#ffffff' : theme.colors.text}
+                      />
+                      <Text
+                        style={[
+                          styles.methodBtnText,
+                          paymentMethod === pm.id && styles.methodBtnTextActive,
+                        ]}
+                      >
+                        {isRTL ? pm.labelAr || pm.labelFr : pm.labelFr}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
               </View>
 
               {/* Cash given & change */}
               {paymentMethod === 'cash' && (
                 <View style={styles.calcBox}>
                   <Text style={[styles.inputLabel, isRTL && styles.textRight]}>{t('amountPaid')}</Text>
+
+                  {/* Fast Denomination Buttons */}
+                  <View style={[styles.quickDenomRow, isRTL && styles.rowReverse]}>
+                    {[500, 1000, 2000, 5000].map((denom) => (
+                      <TouchableOpacity
+                        key={denom}
+                        style={styles.quickDenomBtn}
+                        onPress={() => setPaidAmountInput(String(denom))}
+                      >
+                        <Text style={styles.quickDenomText}>{denom} {currency}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      style={[styles.quickDenomBtn, { backgroundColor: '#e0f2fe', borderColor: '#38bdf8' }]}
+                      onPress={() => setPaidAmountInput(String(total))}
+                    >
+                      <Text style={[styles.quickDenomText, { color: '#0369a1', fontWeight: 'bold' }]}>
+                        {t('exactAmount') || 'Exact'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
                   <TextInput
                     style={[styles.inputBox, isRTL && styles.textRight]}
                     keyboardType="numeric"
@@ -803,6 +956,69 @@ export default function POSScreen() {
             {/* Direct Checkout Validation Button (Quits window immediately) */}
             <TouchableOpacity style={styles.confirmSaleBtn} onPress={handleConfirmSale}>
               <Text style={styles.confirmSaleBtnText}>{t('pay')} ({formatMoney(total)})</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Express Custom Item Modal (Sans-Code / Instant Item) */}
+      <Modal visible={customItemModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.checkoutModalContent, { maxWidth: 420 }]}>
+            <View style={[styles.modalHeader, isRTL && styles.rowReverse]}>
+              <Text style={styles.modalTitle}>
+                {isRTL ? 'إضافة مادة سريعة بدون رمز' : 'Article Express Sans Code'}
+              </Text>
+              <TouchableOpacity onPress={() => setCustomItemModalVisible(false)}>
+                <Ionicons name="close" size={24} color={theme.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+              {t('productName') || 'Nom de l\'article'} *
+            </Text>
+            <TextInput
+              style={[styles.inputBox, isRTL && styles.textRight]}
+              placeholder="ex: Câble divers, Dépannage, Livraison..."
+              value={customItemName}
+              onChangeText={setCustomItemName}
+              autoFocus
+            />
+
+            <View style={{ flexDirection: 'row', marginTop: 10 }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                  {t('price') || 'Prix unitaire'} ({currency}) *
+                </Text>
+                <TextInput
+                  style={[styles.inputBox, isRTL && styles.textRight]}
+                  keyboardType="numeric"
+                  placeholder="ex: 500"
+                  value={customItemPrice}
+                  onChangeText={setCustomItemPrice}
+                />
+              </View>
+              <View style={{ width: 80 }}>
+                <Text style={[styles.inputLabel, isRTL && styles.textRight]}>
+                  {t('qty') || 'Qté'}
+                </Text>
+                <TextInput
+                  style={[styles.inputBox, { textAlign: 'center' }]}
+                  keyboardType="numeric"
+                  value={customItemQty}
+                  onChangeText={setCustomItemQty}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.confirmSaleBtn, { backgroundColor: '#10b981', marginTop: 16 }]}
+              onPress={handleAddCustomItem}
+            >
+              <Ionicons name="cart-outline" size={18} color="#ffffff" />
+              <Text style={styles.confirmSaleBtnText}>
+                {t('addCustomItem') || 'Ajouter au Panier'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1516,5 +1732,85 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: theme.colors.text,
     marginLeft: 6,
+  },
+  expressCustomBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10b981',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: theme.borderRadius.md,
+    marginLeft: 6,
+  },
+  expressCustomBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  quickKeysContainer: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    paddingVertical: 6,
+  },
+  quickKeysScroll: {
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quickKeyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1.5,
+    borderRadius: 20,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    marginRight: 8,
+  },
+  quickKeyChipName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1e293b',
+    marginRight: 6,
+  },
+  quickKeyChipPrice: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  quickKeyAddMoreChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+  },
+  quickKeyAddMoreText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  quickDenomRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 8,
+  },
+  quickDenomBtn: {
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  quickDenomText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
   },
 });

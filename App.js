@@ -20,6 +20,10 @@ import ExpensesScreen from './src/screens/ExpensesScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import IPTVStockScreen from './src/screens/IPTVStockScreen';
+import CustomizationScreen from './src/screens/CustomizationScreen';
+import SuppliersScreen from './src/screens/SuppliersScreen';
+import CashDrawerScreen from './src/screens/CashDrawerScreen';
+import BarcodeGeneratorScreen from './src/screens/BarcodeGeneratorScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -298,6 +302,26 @@ function NavigationRoot() {
           name="Settings"
           component={SettingsScreen}
           options={{ title: t('settings') }}
+        />
+        <Stack.Screen
+          name="Customization"
+          component={CustomizationScreen}
+          options={{ title: t('customizationCenter') || 'Centre Sans-Code' }}
+        />
+        <Stack.Screen
+          name="Suppliers"
+          component={SuppliersScreen}
+          options={{ title: t('suppliers') || 'Fournisseurs & Achats' }}
+        />
+        <Stack.Screen
+          name="CashDrawer"
+          component={CashDrawerScreen}
+          options={{ title: t('cashDrawer') || 'Gestion Caisse & Clôture Z' }}
+        />
+        <Stack.Screen
+          name="BarcodeGenerator"
+          component={BarcodeGeneratorScreen}
+          options={{ title: t('barcodeGenerator') || 'Étiquettes Prix & Barcodes' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

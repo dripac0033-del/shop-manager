@@ -923,6 +923,100 @@ export default function SettingsScreen() {
         </View>
       )}
 
+      {/* 0. MODULES PRO & EXTENSIONS SANS-CODE */}
+      <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse, { marginTop: 12 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="cube-outline" size={20} color="#6366f1" style={{ marginRight: 6 }} />
+          <Text style={styles.sectionTitle}>{isRTL ? 'الوحدات المتقدمة والتخصيص' : 'Modules Avancés & Sans-Code'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={[styles.usersHelpText, isRTL && styles.textRight]}>
+          {isRTL
+            ? 'أضف خيارات، أزرار سريعة، موردين وطرق دفع مخصصة مباشرة دون الرجوع للبرمجة!'
+            : 'Accédez aux nouveaux modules et personnalisez vos touches, fournisseurs et caisse sans toucher au code !'}
+        </Text>
+
+        <View style={{ marginTop: 10 }}>
+          {/* Customization Center */}
+          <TouchableOpacity
+            style={[styles.moduleNavBtn, { borderLeftColor: '#6366f1' }]}
+            onPress={() => navigation.navigate('Customization')}
+          >
+            <View style={[styles.moduleNavIcon, { backgroundColor: '#ede9fe' }]}>
+              <Ionicons name="color-wand" size={20} color="#6366f1" />
+            </View>
+            <View style={{ flex: 1, marginHorizontal: 10 }}>
+              <Text style={styles.moduleNavTitle}>
+                {t('customizationCenter') || 'Centre Sans-Code & Personnalisation'}
+              </Text>
+              <Text style={styles.moduleNavDesc}>
+                Boutons rapides, catégories de dépenses, modèles SAV, importateur CSV
+              </Text>
+            </View>
+            <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#94a3b8" />
+          </TouchableOpacity>
+
+          {/* Suppliers & Purchases */}
+          <TouchableOpacity
+            style={[styles.moduleNavBtn, { borderLeftColor: '#f97316' }]}
+            onPress={() => navigation.navigate('Suppliers')}
+          >
+            <View style={[styles.moduleNavIcon, { backgroundColor: '#ffedd5' }]}>
+              <Ionicons name="business" size={20} color="#f97316" />
+            </View>
+            <View style={{ flex: 1, marginHorizontal: 10 }}>
+              <Text style={styles.moduleNavTitle}>
+                {t('suppliers') || 'Fournisseurs & Commandes d\'Achat'}
+              </Text>
+              <Text style={styles.moduleNavDesc}>
+                {suppliers.length} fournisseurs • Suivi des dettes et bons d'entrée
+              </Text>
+            </View>
+            <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#94a3b8" />
+          </TouchableOpacity>
+
+          {/* Cash Drawer & Z-Report */}
+          <TouchableOpacity
+            style={[styles.moduleNavBtn, { borderLeftColor: '#10b981' }]}
+            onPress={() => navigation.navigate('CashDrawer')}
+          >
+            <View style={[styles.moduleNavIcon, { backgroundColor: '#dcfce7' }]}>
+              <Ionicons name="wallet" size={20} color="#10b981" />
+            </View>
+            <View style={{ flex: 1, marginHorizontal: 10 }}>
+              <Text style={styles.moduleNavTitle}>
+                {t('cashDrawer') || 'Gestion de Caisse & Clôture Z'}
+              </Text>
+              <Text style={styles.moduleNavDesc}>
+                Fond de caisse, billetage, entrées/sorties et impression ticket Z
+              </Text>
+            </View>
+            <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#94a3b8" />
+          </TouchableOpacity>
+
+          {/* Barcode & Shelf Label Generator */}
+          <TouchableOpacity
+            style={[styles.moduleNavBtn, { borderLeftColor: '#0ea5e9' }]}
+            onPress={() => navigation.navigate('BarcodeGenerator')}
+          >
+            <View style={[styles.moduleNavIcon, { backgroundColor: '#e0f2fe' }]}>
+              <Ionicons name="pricetag" size={20} color="#0ea5e9" />
+            </View>
+            <View style={{ flex: 1, marginHorizontal: 10 }}>
+              <Text style={styles.moduleNavTitle}>
+                {t('barcodeGenerator') || 'Étiquettes Prix & Codes-Barres'}
+              </Text>
+              <Text style={styles.moduleNavDesc}>
+                Générateur de codes-barres et impression d'étiquettes rayon
+              </Text>
+            </View>
+            <Ionicons name={isRTL ? 'chevron-back' : 'chevron-forward'} size={20} color="#94a3b8" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* 1. SETTINGS PIN CODE SECURITY */}
       <View style={[styles.sectionHeaderRow, isRTL && styles.rowReverse]}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -3837,5 +3931,37 @@ const styles = StyleSheet.create({
     color: '#44403c',
     lineHeight: 18,
     marginBottom: 8,
+  },
+  moduleNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderLeftWidth: 4,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  moduleNavIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moduleNavTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  moduleNavDesc: {
+    fontSize: 11,
+    color: '#64748b',
+    marginTop: 2,
   },
 });
