@@ -68,6 +68,10 @@ import {
   deleteIptvCodeFromFirebase,
   fetchIptvCodesFromFirebase,
   subscribeToFirebaseIptvCodes,
+  // Storage Routing on Firebase
+  saveStorageRoutingToFirebase,
+  fetchStorageRoutingFromFirebase,
+  subscribeToStorageRoutingFromFirebase,
   // Helpers & Full Sync
   checkFirestoreHealth,
   uploadAllDataToFirebase,
@@ -542,7 +546,7 @@ export const AppProvider = ({ children }) => {
         if (storedPin) setSettingsPin(storedPin);
         if (storedPinReq === 'true') setIsPinRequired(true);
 
-        // Hydrate Storage Routing
+        // Hydrate Storage Routing (Local first, then sync from Firebase)
         const storedRouting = await AsyncStorage.getItem('@storage_routing');
         if (storedRouting) {
           try {
@@ -552,6 +556,14 @@ export const AppProvider = ({ children }) => {
             }
           } catch (e) {}
         }
+        try {
+          const remoteRouting = await fetchStorageRoutingFromFirebase();
+          if (remoteRouting && typeof remoteRouting === 'object') {
+            const { updatedAt, ...cleanRouting } = remoteRouting;
+            setStorageRouting((prev) => ({ ...prev, ...cleanRouting }));
+            await AsyncStorage.setItem('@storage_routing', JSON.stringify(cleanRouting));
+          }
+        } catch (e) {}
 
         // Hydrate Multi-Databases List
         try {
@@ -920,6 +932,7 @@ export const AppProvider = ({ children }) => {
     let unsubDatabasesList = () => {};
     let unsubIptv = () => {};
     let unsubSupplier = () => {};
+    let unsubStorageRouting = () => {};
 
     const handleSubError = (err) => {
       console.warn('Real-time listener error:', err);
@@ -1072,6 +1085,16 @@ export const AppProvider = ({ children }) => {
           setIptvSupplierConfig(remoteSupplier);
         }
       });
+
+      // Synchronize Storage Location Routing in real-time from Firebase Firestore
+      unsubStorageRouting = subscribeToStorageRoutingFromFirebase((remoteRouting) => {
+        if (isLocalUpdateRef.current) return;
+        if (remoteRouting && typeof remoteRouting === 'object') {
+          const { updatedAt, ...cleanRouting } = remoteRouting;
+          setStorageRouting((prev) => ({ ...prev, ...cleanRouting }));
+          saveState('@storage_routing', cleanRouting);
+        }
+      });
     } catch (e) {
       console.warn('Real-time sync subscription error:', e);
     }
@@ -1091,6 +1114,7 @@ export const AppProvider = ({ children }) => {
       unsubDatabasesList();
       unsubIptv();
       unsubSupplier();
+      unsubStorageRouting();
     };
   }, [firebaseConnected]);
 
@@ -2704,6 +2728,7 @@ export const AppProvider = ({ children }) => {
         expenses,
         users,
         storeInfo,
+        storageRouting,
       });
 
       setFirebaseConnected(true);
@@ -2778,6 +2803,11 @@ export const AppProvider = ({ children }) => {
       if (data.storeInfo && typeof data.storeInfo === 'object') {
         setStoreInfo(data.storeInfo);
         saveState('@store_info', data.storeInfo);
+      }
+      if (data.storageRouting && typeof data.storageRouting === 'object') {
+        const { updatedAt, ...cleanRouting } = data.storageRouting;
+        setStorageRouting((prev) => ({ ...prev, ...cleanRouting }));
+        saveState('@storage_routing', cleanRouting);
       }
 
       setFirebaseConnected(true);
@@ -3472,9 +3502,23 @@ export const AppProvider = ({ children }) => {
   // ==============================================================
   const updateStorageRouting = async (newRouting) => {
     touchActivity();
+    isLocalUpdateRef.current = true;
     const updated = { ...storageRouting, ...newRouting };
     setStorageRouting(updated);
     await AsyncStorage.setItem('@storage_routing', JSON.stringify(updated));
+
+    if (isFirebaseReady()) {
+      try {
+        await saveStorageRoutingToFirebase(updated);
+      } catch (err) {
+        console.warn('Failed to save storage routing to Firebase:', err);
+      }
+    }
+
+    setTimeout(() => {
+      isLocalUpdateRef.current = false;
+    }, 1500);
+
     return updated;
   };
 

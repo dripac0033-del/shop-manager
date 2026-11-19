@@ -616,6 +616,53 @@ export function subscribeToIptvSupplierConfigFromFirebase(callback) {
   }
 }
 
+// Storage Routing Configuration on Firebase
+export async function saveStorageRoutingToFirebase(routing) {
+  if (!dbInstance) return null;
+  try {
+    const routeRef = doc(dbInstance, 'settings', 'storage_routing');
+    await setDoc(routeRef, sanitizeDoc({
+      ...routing,
+      updatedAt: new Date().toISOString(),
+    }), { merge: true });
+    return { success: true };
+  } catch (err) {
+    console.warn('Failed to save storage routing to Firebase:', err);
+    throw err;
+  }
+}
+
+export async function fetchStorageRoutingFromFirebase() {
+  if (!dbInstance) return null;
+  try {
+    const routeRef = doc(dbInstance, 'settings', 'storage_routing');
+    const snap = await getDoc(routeRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch storage routing from Firebase:', err);
+  }
+  return null;
+}
+
+export function subscribeToStorageRoutingFromFirebase(callback) {
+  if (!dbInstance) return () => {};
+  try {
+    const routeRef = doc(dbInstance, 'settings', 'storage_routing');
+    return onSnapshot(routeRef, (docSnap) => {
+      if (docSnap.exists() && callback) {
+        callback(docSnap.data());
+      }
+    }, (err) => {
+      console.warn('Storage routing subscription error:', err);
+    });
+  } catch (err) {
+    console.warn('Failed to setup storage routing subscription:', err);
+    return () => {};
+  }
+}
+
 // IPTV & Servers Codes
 export async function saveIptvCodeToFirebase(code) {
   return saveItemToCollection('iptv_codes', code);
@@ -768,6 +815,10 @@ export async function uploadAllDataToFirebase(allData) {
     await saveStoreInfoToFirebase(allData.storeInfo);
   }
 
+  if (allData.storageRouting) {
+    await saveStorageRoutingToFirebase(allData.storageRouting);
+  }
+
   return { success: true, counts };
 }
 
@@ -794,6 +845,7 @@ export async function fetchAllDataFromFirebase() {
     users,
     storeInfo,
     iptvCodes,
+    storageRouting,
   ] = await Promise.all([
     fetchProductsFromFirebase(),
     fetchCategoriesFromFirebase(),
@@ -806,6 +858,7 @@ export async function fetchAllDataFromFirebase() {
     fetchUsersFromFirebase(),
     fetchStoreInfoFromFirebase(),
     fetchIptvCodesFromFirebase().catch(() => []),
+    fetchStorageRoutingFromFirebase().catch(() => null),
   ]);
 
   return {
@@ -820,5 +873,6 @@ export async function fetchAllDataFromFirebase() {
     users,
     storeInfo,
     iptvCodes,
+    storageRouting,
   };
 }

@@ -559,15 +559,6 @@ export default function POSScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
-            <TouchableOpacity
-              style={styles.quickKeyAddMoreChip}
-              onPress={() => navigation.navigate('Customization')}
-            >
-              <Ionicons name="settings-outline" size={14} color="#64748b" />
-              <Text style={styles.quickKeyAddMoreText}>
-                {isRTL ? 'تخصيص' : 'Gérer'}
-              </Text>
-            </TouchableOpacity>
           </ScrollView>
         </View>
       )}

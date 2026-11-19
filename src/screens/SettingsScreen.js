@@ -1124,7 +1124,10 @@ export default function SettingsScreen() {
                       styles.routingChoiceBtn,
                       isActive && styles.routingChoiceBtnActive,
                     ]}
-                    onPress={() => updateStorageRouting({ [item.key]: backend })}
+                    onPress={async () => {
+                      await updateStorageRouting({ [item.key]: backend });
+                      showToast(isRTL ? '✅ تم حفظ موقع التخزين في Firebase ومحلياً' : '✅ Emplacement de stockage enregistré sur Firebase !');
+                    }}
                   >
                     <Text
                       style={[

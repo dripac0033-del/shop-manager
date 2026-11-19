@@ -27,8 +27,6 @@ export default function DashboardScreen({ navigation }) {
     cloudflareConnected,
     cloudflareError,
     iptvCodes = [],
-    suppliers = [],
-    cashDrawer = {},
   } = useApp();
 
   // Metrics calculation
@@ -39,8 +37,6 @@ export default function DashboardScreen({ navigation }) {
   const validRepairs = Array.isArray(repairs) ? repairs : [];
   const validTransactions = Array.isArray(transactions) ? transactions : [];
   const validExpenses = Array.isArray(expenses) ? expenses : [];
-  const totalSupplierDebt = (suppliers || []).reduce((sum, s) => sum + Number(s.debt || 0), 0);
-  const isShiftOpen = !!cashDrawer?.activeSession;
 
   const todaySales = validSales.filter((s) => (s.date || '').startsWith(today));
   const todayRevenue = todaySales.reduce((sum, s) => sum + Number(s.total || 0), 0);
@@ -301,41 +297,6 @@ export default function DashboardScreen({ navigation }) {
           </Text>
         </TouchableOpacity>
 
-        {/* Suppliers Debt */}
-        <TouchableOpacity 
-          style={[styles.kpiCard, { borderLeftColor: '#f97316' }]}
-          onPress={() => navigation.navigate('Suppliers')}
-        >
-          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
-            <Text style={styles.kpiTitle}>{t('suppliers') || 'Fournisseurs'}</Text>
-            <View style={[styles.kpiIconWrapper, { backgroundColor: '#ffedd5' }]}>
-              <Ionicons name="business" size={20} color="#f97316" />
-            </View>
-          </View>
-          <Text style={[styles.kpiValue, { color: '#f97316' }]}>{formatMoney(totalSupplierDebt)}</Text>
-          <Text style={styles.kpiSubtitle}>
-            {suppliers.length} {isRTL ? 'موردين مسجلين' : 'fournisseurs'}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Cash Drawer Status */}
-        <TouchableOpacity 
-          style={[styles.kpiCard, { borderLeftColor: isShiftOpen ? '#10b981' : '#94a3b8' }]}
-          onPress={() => navigation.navigate('CashDrawer')}
-        >
-          <View style={[styles.kpiHeader, isRTL && styles.rowReverse]}>
-            <Text style={styles.kpiTitle}>{t('cashDrawer') || 'Tiroir Caisse'}</Text>
-            <View style={[styles.kpiIconWrapper, { backgroundColor: isShiftOpen ? '#dcfce7' : '#f1f5f9' }]}>
-              <Ionicons name={isShiftOpen ? "wallet" : "lock-closed"} size={20} color={isShiftOpen ? '#10b981' : '#64748b'} />
-            </View>
-          </View>
-          <Text style={[styles.kpiValue, { color: isShiftOpen ? '#10b981' : '#64748b' }]}>
-            {isShiftOpen ? (isRTL ? '🟢 مفتوحة' : '🟢 Ouverte') : (isRTL ? '🔒 مغلقة' : '🔒 Fermée')}
-          </Text>
-          <Text style={styles.kpiSubtitle}>
-            {isRTL ? 'انقر لإغلاق Z أو مراجعة الرصيد' : 'Clôture Z & Billetage'}
-          </Text>
-        </TouchableOpacity>
       </View>
 
       {/* Quick Action Buttons */}
@@ -349,21 +310,6 @@ export default function DashboardScreen({ navigation }) {
           <Text style={styles.actionBtnText}>{t('newSale')}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
-          onPress={() => navigation.navigate('CashDrawer')}
-        >
-          <Ionicons name="wallet-outline" size={26} color="#ffffff" />
-          <Text style={styles.actionBtnText}>{isRTL ? 'الكاسة Z' : 'Caisse Z'}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.actionBtn, { backgroundColor: '#f97316' }]}
-          onPress={() => navigation.navigate('Suppliers')}
-        >
-          <Ionicons name="business-outline" size={26} color="#ffffff" />
-          <Text style={styles.actionBtnText}>{t('suppliers') || 'Fournisseurs'}</Text>
-        </TouchableOpacity>
 
 
         <TouchableOpacity 
